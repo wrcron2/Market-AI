@@ -1,0 +1,10 @@
+
+> marketflow-dashboard@0.1.0 dev
+> vite
+
+
+  VITE v5.4.21  ready in 165 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: use --host to expose
+8:23:19 PM [vite] hmr update /src/components/Dashboard.tsx
