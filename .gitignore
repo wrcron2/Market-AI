@@ -1,0 +1,34 @@
+# Environment — NEVER commit secrets
+.env
+
+# Go
+backend/vendor/
+backend/*.exe
+backend/tmp/
+
+# Python
+ai-brain/__pycache__/
+ai-brain/.venv/
+ai-brain/*.egg-info/
+ai-brain/dist/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Node / React
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Database
+infra/db/*.db
+infra/db/*.db-shm
+infra/db/*.db-wal
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp

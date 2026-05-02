@@ -1,0 +1,24 @@
+2026-04-25 20:07:18 [info     ] marketflow.brain.starting      watchlist=['AAPL', 'MSFT', 'NVDA', 'SPY', 'QQQ', 'TSLA', 'AMZN', 'GOOGL']
+Traceback (most recent call last):
+  File "/Users/ronleibovitch/Documents/Claude/Projects/Market AI/ai-brain/main.py", line 208, in <module>
+    main()
+  File "/Users/ronleibovitch/Documents/Claude/Projects/Market AI/ai-brain/main.py", line 108, in main
+    orchestrator    = Orchestrator()
+  File "/Users/ronleibovitch/Documents/Claude/Projects/Market AI/ai-brain/agents/orchestrator.py", line 65, in __init__
+    self._graph = self._build_graph()
+  File "/Users/ronleibovitch/Documents/Claude/Projects/Market AI/ai-brain/agents/orchestrator.py", line 176, in _build_graph
+    g = StateGraph(AgentState)
+  File "/Users/ronleibovitch/Library/Python/3.9/lib/python/site-packages/langgraph/graph/state.py", line 243, in __init__
+    self._add_schema(self.state_schema)
+  File "/Users/ronleibovitch/Library/Python/3.9/lib/python/site-packages/langgraph/graph/state.py", line 256, in _add_schema
+    channels, managed, type_hints = _get_channels(schema)
+  File "/Users/ronleibovitch/Library/Python/3.9/lib/python/site-packages/langgraph/graph/state.py", line 1318, in _get_channels
+    type_hints = get_type_hints(schema, include_extras=True)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 1424, in get_type_hints
+    value = _eval_type(value, base_globals, localns)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 290, in _eval_type
+    return t._evaluate(globalns, localns, recursive_guard)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/typing.py", line 546, in _evaluate
+    eval(self.__forward_code__, globalns, localns),
+  File "<string>", line 1, in <module>
+TypeError: unsupported operand type(s) for |: 'ModelMetaclass' and 'NoneType'
