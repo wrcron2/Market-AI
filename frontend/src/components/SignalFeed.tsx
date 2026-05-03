@@ -1,5 +1,6 @@
+import type { JSX } from 'react'
 import { TrendingUp, TrendingDown, CheckCircle, XCircle, Zap, Clock } from 'lucide-react'
-import type { StagedOrder, OrderStatus } from '../types'
+import type { StagedOrder } from '../types'
 
 interface Props {
   events: FeedEvent[]

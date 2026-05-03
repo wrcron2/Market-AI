@@ -124,7 +124,7 @@ class Orchestrator:
             f"[Risk] {risk.risk_notes}"
         )
 
-        model_tag = self.router.model_tag(Complexity.HIGH)  # debate used Bedrock
+        model_tag = self.router.model_tag(Complexity.LOW)
 
         # ── REST call to Go backend ────────────────────────────────────────────
         try:

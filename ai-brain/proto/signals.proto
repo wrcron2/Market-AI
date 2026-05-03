@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package marketflow;
+
+option go_package = "./proto";
+
+enum Direction {
+  DIRECTION_UNKNOWN = 0;
+  BUY               = 1;
+  SELL              = 2;
+  SHORT             = 3;
+  COVER             = 4;
+}
+
+enum OrderStatus {
+  PENDING  = 0;
+  APPROVED = 1;
+  REJECTED = 2;
+  EXECUTED = 3;
+  FAILED   = 4;
+}
+
+message SignalRequest {
+  string    signal_id     = 1;
+  string    symbol        = 2;
+  Direction direction     = 3;
+  double    quantity      = 4;
+  double    limit_price   = 5;
+  double    confidence    = 6;
+  string    reasoning     = 7;
+  string    strategy_name = 8;
+  string    model_used    = 9;
+  int64     generated_at  = 10;
+}
+
+message SignalResponse {
+  string signal_id = 1;
+  bool   accepted  = 2;
+  string message   = 3;
+}
+
+message WatchRequest {
+  string signal_id = 1;
+}
+
+message SignalStatusUpdate {
+  string      signal_id  = 1;
+  OrderStatus status     = 2;
+  string      message    = 3;
+  int64       updated_at = 4;
+}
+
+message GreenLightRequest {
+  string signal_id      = 1;
+  string trader_comment = 2;
+}
+
+message GreenLightResponse {
+  string signal_id = 1;
+  bool   success   = 2;
+  string message   = 3;
+}
+
+message ListPendingRequest {
+  int32 limit  = 1;
+  int32 offset = 2;
+}
+
+message ListPendingResponse {
+  repeated StagedOrder orders = 1;
+  int32                total  = 2;
+}
+
+message StagedOrder {
+  string      signal_id     = 1;
+  string      symbol        = 2;
+  Direction   direction     = 3;
+  double      quantity      = 4;
+  double      limit_price   = 5;
+  double      confidence    = 6;
+  string      reasoning     = 7;
+  string      strategy_name = 8;
+  OrderStatus status        = 9;
+  int64       created_at    = 10;
+}
+
+service SignalService {
+  rpc SubmitSignal(SignalRequest) returns (SignalResponse);
+  rpc WatchSignalStatus(WatchRequest) returns (stream SignalStatusUpdate);
+}
+
+service GreenLightService {
+  rpc Approve(GreenLightRequest) returns (GreenLightResponse);
+  rpc Reject(GreenLightRequest) returns (GreenLightResponse);
+  rpc ListPending(ListPendingRequest) returns (ListPendingResponse);
+}

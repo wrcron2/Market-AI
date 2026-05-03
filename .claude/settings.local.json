@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "mcp__3e77aca3-fb41-4c08-97a5-e89ce1b64666__notion-search",
-      "mcp__3e77aca3-fb41-4c08-97a5-e89ce1b64666__notion-create-pages"
+      "mcp__3e77aca3-fb41-4c08-97a5-e89ce1b64666__notion-create-pages",
+      "Bash(python3 -c \"import matplotlib; import PIL; print\\('ok'\\)\")",
+      "Bash(pip3 install *)",
+      "Bash(docker compose *)",
+      "mcp__claude_ai_Notion__notion-fetch"
     ]
   }
 }

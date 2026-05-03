@@ -8,6 +8,7 @@ that the debate agent and risk agent will then evaluate.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any
 
@@ -55,19 +56,18 @@ class SignalAgent:
     into the prompt. For the scaffold, we use a static market snapshot.
     """
 
-    SYSTEM_PROMPT = """You are a quantitative trading signal generator.
-Given a market data snapshot, produce a single actionable trading signal.
-Respond with ONLY a valid JSON object matching this schema:
-{
-  "symbol": "string (ticker symbol)",
-  "direction": "BUY | SELL | SHORT | COVER",
-  "quantity": number,
-  "limit_price": number (0 for market order),
-  "reasoning": "string (concise, 2-3 sentences)",
-  "strategy_name": "string (name of the alpha strategy used)",
-  "initial_confidence": number (0.0-1.0)
-}
-Do not include any text outside the JSON object."""
+    SYSTEM_PROMPT = """You are a quantitative trading signal generator. Output ONLY raw JSON, no explanation.
+
+Example output:
+{"symbol":"AAPL","direction":"BUY","quantity":100,"limit_price":0,"reasoning":"RSI oversold with volume breakout.","strategy_name":"momentum_breakout","initial_confidence":0.85}
+
+Rules:
+- direction must be one of: BUY, SELL, SHORT, COVER
+- quantity is number of shares (integer)
+- limit_price is 0 for market order
+- initial_confidence is 0.0 to 1.0
+- Output starts with { and ends with }
+- No markdown, no explanation, no text outside the JSON"""
 
     def __init__(self, router: LLMRouter, strategy_name: str = "momentum_breakout") -> None:
         self.router = router
@@ -87,18 +87,27 @@ Do not include any text outside the JSON object."""
         log.info("signal_agent.generate", symbol=symbol, strategy=self.strategy_name)
 
         user_prompt = (
-            f"Market data snapshot:\n{json.dumps(market_snapshot, indent=2)}\n\n"
-            f"Strategy context: {self.strategy_name}\n"
-            "Generate a trading signal."
+            f"Analyze this market data and output a trading signal JSON.\n\n"
+            f"MARKET DATA:\n{json.dumps(market_snapshot, indent=2)}\n\n"
+            f"OUTPUT a JSON object with exactly these keys: "
+            f"symbol, direction (BUY/SELL/SHORT/COVER), quantity (integer shares), "
+            f"limit_price (0 for market), reasoning (string), strategy_name, initial_confidence (0.0-1.0)"
         )
 
+        raw = ""
         try:
             raw = self.router.complete(
                 system=self.SYSTEM_PROMPT,
                 user=user_prompt,
                 complexity=Complexity.LOW,  # Ollama handles this
+                schema=CandidateSignal,
             )
-            data = json.loads(raw)
+            # Extract first JSON object if model added surrounding text
+            json_str = raw
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            if match:
+                json_str = match.group(0)
+            data = json.loads(json_str)
             data.setdefault("strategy_name", self.strategy_name)
             signal = CandidateSignal(**data)
             log.info(

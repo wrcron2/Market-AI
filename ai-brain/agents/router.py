@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import os
 from enum import Enum
-from typing import Any
+from typing import Any, Type
+
+from pydantic import BaseModel
 
 import ollama
 import structlog
@@ -57,11 +59,12 @@ class LLMRouter:
         user: str,
         complexity: Complexity = Complexity.LOW,
         max_tokens: int = 1024,
+        schema: Type[BaseModel] | None = None,
     ) -> str:
         """Run a chat completion and return the assistant text."""
         if complexity == Complexity.HIGH:
             return self._bedrock_complete(system, user, max_tokens)
-        return self._ollama_complete(system, user, max_tokens)
+        return self._ollama_complete(system, user, max_tokens, schema=schema)
 
     def model_tag(self, complexity: Complexity) -> str:
         """Return a short label for the model used (stored on the signal)."""
@@ -72,9 +75,10 @@ class LLMRouter:
     # ── Ollama (local) ─────────────────────────────────────────────────────────
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=8))
-    def _ollama_complete(self, system: str, user: str, max_tokens: int) -> str:
+    def _ollama_complete(self, system: str, user: str, max_tokens: int, schema: Type[BaseModel] | None = None) -> str:
         log.debug("ollama.complete", model=self.ollama_model)
         client = ollama.Client(host=self.ollama_host)
+        fmt = schema.model_json_schema() if schema else "json"
         resp = client.chat(
             model=self.ollama_model,
             messages=[
@@ -82,8 +86,11 @@ class LLMRouter:
                 {"role": "user",   "content": user},
             ],
             options={"num_predict": max_tokens},
+            format=fmt,
+            think=False,
         )
-        return resp["message"]["content"].strip()
+        content = resp.message.content or ""
+        return content.strip()
 
     # ── AWS Bedrock ────────────────────────────────────────────────────────────
 

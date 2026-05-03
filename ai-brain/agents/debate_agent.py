@@ -81,7 +81,7 @@ class DebateAgent:
         bull_arg = self.router.complete(
             system=BULL_SYSTEM,
             user=f"Argue FOR this trade:\n\n{signal_summary}",
-            complexity=Complexity.HIGH,
+            complexity=Complexity.LOW,
         )
         log.debug("debate_agent.bull_done", length=len(bull_arg))
 
@@ -89,7 +89,7 @@ class DebateAgent:
         bear_arg = self.router.complete(
             system=BEAR_SYSTEM,
             user=f"Argue AGAINST this trade:\n\n{signal_summary}",
-            complexity=Complexity.HIGH,
+            complexity=Complexity.LOW,
         )
         log.debug("debate_agent.bear_done", length=len(bear_arg))
 
@@ -103,7 +103,8 @@ class DebateAgent:
         judge_raw = self.router.complete(
             system=JUDGE_SYSTEM,
             user=judge_prompt,
-            complexity=Complexity.HIGH,
+            complexity=Complexity.LOW,
+            schema=DebateResult,
         )
 
         try:

@@ -88,10 +88,19 @@ class RiskAgent:
         )
 
         try:
+            class _RiskOutput(BaseModel):
+                is_blocked: bool
+                block_reason: str = ""
+                risk_score: float
+                risk_notes: str
+                confidence_adjustment: float = 0.0
+                quantity_multiplier: float = 1.0
+
             raw = self.router.complete(
                 system=RISK_SYSTEM,
                 user=user_prompt,
-                complexity=Complexity.LOW,   # Ollama — fast, local
+                complexity=Complexity.LOW,
+                schema=_RiskOutput,
             )
             data = json.loads(raw)
 
