@@ -240,6 +240,92 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
 .btn-reject { background: rgba(239,68,68,0.15); color: var(--red); border: 1px solid rgba(239,68,68,0.3); flex: 1; justify-content: center; }
 .btn-reject:hover:not(:disabled) { background: rgba(239,68,68,0.25); }
 
+/* ─── Order date ──────────────────────────────────────────────────────────── */
+.order-date {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--text-muted);
+}
+
+/* ─── Filter toolbar ──────────────────────────────────────────────────────── */
+.filter-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; margin-bottom: 16px;
+}
+
+.filter-search {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px; flex: 1; min-width: 140px;
+}
+.filter-search input {
+  background: none; border: none; outline: none;
+  color: var(--text); font-size: 13px; width: 100%;
+}
+.filter-search svg { color: var(--text-muted); flex-shrink: 0; }
+
+.filter-select-wrap {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px;
+}
+.filter-select-wrap svg { color: var(--text-muted); flex-shrink: 0; }
+.filter-select-wrap select {
+  background: none; border: none; outline: none;
+  color: var(--text); font-size: 13px; cursor: pointer;
+}
+.filter-select-wrap select option { background: var(--bg-card); }
+
+.filter-date-wrap {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px;
+}
+.filter-date-wrap svg { color: var(--text-muted); flex-shrink: 0; }
+.filter-date-wrap input[type="date"] {
+  background: none; border: none; outline: none;
+  color: var(--text); font-size: 13px; cursor: pointer;
+  color-scheme: dark;
+}
+.date-sep { color: var(--text-muted); font-size: 12px; }
+
+.filter-clear {
+  background: rgba(239,68,68,0.1); color: var(--red);
+  border: 1px solid rgba(239,68,68,0.2); border-radius: 6px;
+  padding: 6px 12px; font-size: 12px; font-weight: 600;
+  white-space: nowrap;
+}
+.filter-clear:hover { background: rgba(239,68,68,0.2); }
+
+.badge-filtered {
+  background: rgba(59,130,246,0.2); color: var(--blue);
+  border-radius: 999px; padding: 1px 8px;
+  font-size: 12px; font-weight: 600;
+}
+
+.filter-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 48px; color: var(--text-muted);
+}
+.filter-empty svg { opacity: 0.4; }
+
+/* ─── Pagination ──────────────────────────────────────────────────────────── */
+.pagination {
+  display: flex; align-items: center; gap: 4px;
+  margin-top: 20px; justify-content: center; flex-wrap: wrap;
+}
+.page-btn {
+  display: flex; align-items: center; justify-content: center;
+  min-width: 32px; height: 32px; padding: 0 8px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 13px;
+  transition: background 0.15s, border-color 0.15s;
+}
+.page-btn:hover:not(:disabled) { background: var(--bg-card-hover); border-color: var(--blue); }
+.page-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.page-btn.active { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 700; }
+.page-ellipsis { color: var(--text-muted); padding: 0 4px; line-height: 32px; }
+.page-info { font-size: 12px; color: var(--text-muted); margin-left: 8px; }
+
 /* ─── Signal Feed ─────────────────────────────────────────────────────────── */
 .signal-feed { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; height: fit-content; max-height: 70vh; display: flex; flex-direction: column; }
 .feed-empty { color: var(--text-muted); text-align: center; padding: 40px 0; }
