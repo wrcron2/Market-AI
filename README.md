@@ -36,7 +36,7 @@ A high-frequency multi-agent trading system with institutional-grade security an
 | AI Brain | Python 3.12 + LangGraph |
 | Inter-service | gRPC + Protocol Buffers |
 | Light LLM | Ollama (Qwen2.5-Coder 7B) |
-| Heavy LLM | AWS Bedrock (Claude 3.5 Sonnet) |
+| Heavy LLM | AWS Bedrock (Claude Sonnet 4.6) |
 | Broker API | Interactive Brokers (IBKR) |
 
 ## Quick Start
@@ -77,7 +77,7 @@ AWS_ACCESS_KEY_ID=your_key_here
 AWS_SECRET_ACCESS_KEY=your_secret_here
 ```
 
-> AWS Bedrock is used for the debate agent (Claude 3.5 Sonnet). If you skip AWS keys, the debate step will fail — the signal agent and risk agent (Ollama) will still work.
+> AWS Bedrock is used for the debate agent (Claude Sonnet 4.6). If you skip AWS keys, the debate step will fail — the signal agent and risk agent (Ollama) will still work.
 
 ### Step 3 — Generate the gRPC stubs (one-time)
 
