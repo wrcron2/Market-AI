@@ -62,20 +62,60 @@ class YahooFinanceFeed:
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
+    # Symbols per yf.download() batch — 300 is the sweet spot for reliability
+    _CHUNK_SIZE = 300
+
     def get_snapshots(self) -> list[dict[str, Any]]:
         """
         Download data and return a list of market_snapshot dicts.
+        Large symbol lists are split into chunks to avoid Yahoo throttling.
         Symbols with errors or insufficient volume are silently skipped.
         """
         snapshots: list[dict[str, Any]] = []
-
-        # Fetch all symbols in a single batch request (faster than one-by-one)
         period = f"{self.lookback_days + 5}d"
-        log.info("yahoo_feed.downloading", symbols=self.symbols, period=period)
 
+        # Fetch macro context once (shared across all symbols)
+        vix_val   = self._fetch_last_close("^VIX")
+        spy_trend = self._classify_trend("SPY")
+
+        # Split into chunks and download each
+        chunks = [
+            self.symbols[i : i + self._CHUNK_SIZE]
+            for i in range(0, len(self.symbols), self._CHUNK_SIZE)
+        ]
+        log.info(
+            "yahoo_feed.downloading",
+            total_symbols=len(self.symbols),
+            chunks=len(chunks),
+            period=period,
+        )
+
+        for idx, chunk in enumerate(chunks):
+            log.debug("yahoo_feed.chunk", index=idx + 1, size=len(chunk))
+            chunk_data = self._download_chunk(chunk, period)
+            if chunk_data is None:
+                continue
+
+            for symbol in chunk:
+                try:
+                    snapshot = self._build_snapshot(
+                        symbol, chunk_data, len(chunk), vix_val, spy_trend
+                    )
+                    if snapshot:
+                        snapshots.append(snapshot)
+                except Exception as exc:
+                    log.warning("yahoo_feed.symbol_error", symbol=symbol, error=str(exc))
+
+        log.info("yahoo_feed.complete", count=len(snapshots))
+        return snapshots
+
+    def _download_chunk(
+        self, symbols: list[str], period: str
+    ) -> "pd.DataFrame | None":
+        """Download one chunk of symbols. Returns None on failure."""
         try:
-            tickers_data = yf.download(
-                tickers=self.symbols,
+            return yf.download(
+                tickers=symbols,
                 period=period,
                 interval="1d",
                 group_by="ticker",
@@ -84,25 +124,8 @@ class YahooFinanceFeed:
                 threads=True,
             )
         except Exception as exc:
-            log.error("yahoo_feed.download_error", error=str(exc))
-            return []
-
-        # Also fetch VIX and SPY for macro context
-        vix_val  = self._fetch_last_close("^VIX")
-        spy_trend = self._classify_trend("SPY")
-
-        for symbol in self.symbols:
-            try:
-                snapshot = self._build_snapshot(
-                    symbol, tickers_data, vix_val, spy_trend
-                )
-                if snapshot:
-                    snapshots.append(snapshot)
-            except Exception as exc:
-                log.warning("yahoo_feed.symbol_error", symbol=symbol, error=str(exc))
-
-        log.info("yahoo_feed.complete", count=len(snapshots))
-        return snapshots
+            log.error("yahoo_feed.chunk_download_error", error=str(exc))
+            return None
 
     def get_live_price(self, symbol: str) -> float | None:
         """
@@ -124,13 +147,14 @@ class YahooFinanceFeed:
         self,
         symbol: str,
         tickers_data: pd.DataFrame,
+        chunk_size: int,
         vix: float,
         spy_trend: str,
     ) -> dict[str, Any] | None:
         """Extract one symbol's data and compute technical indicators."""
 
         # Handle both single-symbol and multi-symbol download formats
-        if len(self.symbols) == 1:
+        if chunk_size == 1:
             df = tickers_data
         else:
             df = tickers_data[symbol] if symbol in tickers_data.columns.get_level_values(0) else None

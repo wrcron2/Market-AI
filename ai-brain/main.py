@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import signal
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import httpx
@@ -36,16 +37,8 @@ structlog.configure(
 
 log = structlog.get_logger("marketflow.brain")
 
-# ── Watchlist ─────────────────────────────────────────────────────────────────
-# These symbols are analysed each bar. Edit freely — yfinance supports any
-# US equity, ETF, or index ticker that trades on Yahoo Finance.
-WATCHLIST = [
-    "AAPL", "MSFT", "NVDA",    # Mega-cap tech
-    "SPY",  "QQQ",             # ETFs for market-wide signal
-    "TSLA", "AMZN", "GOOGL",   # Growth / volatile
-]
-
 BAR_INTERVAL_SECONDS = 300    # 5-minute bar cycle (edit to 60 for 1-min bars)
+PIPELINE_WORKERS     = 5      # parallel threads for the AI agent pipeline
 BACKEND_MODE_URL     = f"http://{os.getenv('BRAIN_HOST', '127.0.0.1')}:{os.getenv('GO_SERVER_PORT', '8080')}/api/mode"
 
 
@@ -99,14 +92,17 @@ def _demo_market_data() -> list[dict[str, Any]]:
 
 
 def main() -> None:
-    log.info("marketflow.brain.starting", watchlist=WATCHLIST)
-
     from agents.orchestrator import Orchestrator
+    from data_feed.symbol_universe import get_symbols
     from data_feed.yahoo_feed import YahooFinanceFeed
     from execution.simulated_executor import SimulatedExecutor
 
+    # Load S&P 500 symbol universe (fetches from Wikipedia, caches 24h)
+    symbols = get_symbols()
+    log.info("marketflow.brain.starting", symbol_count=len(symbols))
+
     orchestrator    = Orchestrator()
-    yahoo_feed      = YahooFinanceFeed(WATCHLIST)
+    yahoo_feed      = YahooFinanceFeed(symbols)
     sim_executor    = SimulatedExecutor(
         initial_cash=float(os.getenv("SIM_INITIAL_CASH", "100000")),
         slippage_bps=float(os.getenv("SIM_SLIPPAGE_BPS", "5")),
@@ -125,11 +121,21 @@ def main() -> None:
     signal.signal(signal.SIGTERM, _stop)
 
     # ── Main bar loop ──────────────────────────────────────────────────────────
-    bar_count = 0
+    bar_count       = 0
+    last_symbol_refresh = 0
+
     while running:
         bar_count += 1
         current_mode = _get_current_mode()
-        log.info("brain.bar_start", bar=bar_count, mode=current_mode)
+
+        # Refresh symbol universe daily (86400s) without restarting
+        if time.time() - last_symbol_refresh > 86_400:
+            symbols = get_symbols()
+            yahoo_feed.symbols = symbols
+            last_symbol_refresh = time.time()
+            log.info("brain.symbols_refreshed", count=len(symbols))
+
+        log.info("brain.bar_start", bar=bar_count, mode=current_mode, symbols=len(yahoo_feed.symbols))
 
         # ── Fetch market data ──────────────────────────────────────────────────
         if current_mode == "yahoo":
@@ -151,30 +157,22 @@ def main() -> None:
             time.sleep(BAR_INTERVAL_SECONDS)
             continue
 
-        # ── Run pipeline for each symbol ───────────────────────────────────────
-        for snapshot in snapshots:
+        # ── Run pipeline in parallel across symbols ────────────────────────────
+        def _process(snapshot: dict[str, Any]) -> None:
             if not running:
-                break
-
+                return
             sym = snapshot["symbol"]
             log.info("brain.processing", symbol=sym, source=snapshot.get("_source", "?"))
-
             try:
-                result = orchestrator.run(snapshot)
-                submitted = result.get("submitted", False)
+                result     = orchestrator.run(snapshot)
+                submitted  = result.get("submitted", False)
                 signal_obj = result.get("signal")
-
                 log.info(
                     "brain.pipeline_complete",
                     symbol=sym,
                     submitted=submitted,
                     has_signal=signal_obj is not None,
                 )
-
-                # ── Simulate execution in Yahoo mode ───────────────────────────
-                # The Go backend already marked the order EXECUTED in its DB
-                # (because its greenlight handler runs the sim path when mode=yahoo).
-                # Here we also record the fill in the Python virtual portfolio.
                 if submitted and current_mode == "yahoo" and signal_obj:
                     live_price = yahoo_feed.get_live_price(signal_obj.symbol)
                     fill = sim_executor.execute(
@@ -192,9 +190,17 @@ def main() -> None:
                         pnl=fill.pnl,
                         portfolio=sim_executor.get_portfolio_summary(),
                     )
-
             except Exception as exc:
                 log.error("brain.pipeline_error", symbol=sym, error=str(exc))
+
+        with ThreadPoolExecutor(max_workers=PIPELINE_WORKERS) as pool:
+            futures = {pool.submit(_process, s): s["symbol"] for s in snapshots}
+            for future in as_completed(futures):
+                if not running:
+                    break
+                exc = future.exception()
+                if exc:
+                    log.error("brain.worker_error", symbol=futures[future], error=str(exc))
 
         # Portfolio snapshot at end of each bar
         log.info("brain.portfolio_snapshot", **sim_executor.get_portfolio_summary())
