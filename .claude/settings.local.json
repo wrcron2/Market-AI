@@ -6,7 +6,13 @@
       "Bash(python3 -c \"import matplotlib; import PIL; print\\('ok'\\)\")",
       "Bash(pip3 install *)",
       "Bash(docker compose *)",
-      "mcp__claude_ai_Notion__notion-fetch"
+      "mcp__claude_ai_Notion__notion-fetch",
+      "Bash(python test_aws_ack.py)",
+      "Bash(python3 test_aws_ack.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(xargs ls *)",
+      "mcp__3e77aca3-fb41-4c08-97a5-e89ce1b64666__notion-fetch",
+      "mcp__3e77aca3-fb41-4c08-97a5-e89ce1b64666__notion-update-page"
     ]
   }
 }
