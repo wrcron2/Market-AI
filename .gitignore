@@ -32,3 +32,4 @@ infra/db/*.db-wal
 .vscode/
 .idea/
 *.swp
+.claude/worktrees/
