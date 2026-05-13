@@ -62,17 +62,38 @@ class SimulatedPortfolio:
         self.cash = self.initial_cash
 
     @property
+    def position_cost_basis(self) -> float:
+        """Total cost basis of all open positions (entry price × quantity)."""
+        return sum(p.entry_price * p.quantity for p in self.positions.values())
+
+    @property
     def total_value(self) -> float:
-        """Cash + unrealised market value of all open positions."""
-        return self.cash  # positions track at cost; mark-to-market requires live prices
+        """Cash + cost basis of open positions. Use mark_to_market() for live P&L."""
+        return self.cash + self.position_cost_basis
 
     @property
     def total_pnl(self) -> float:
         return self.total_value - self.initial_cash
 
+    def mark_to_market(self, prices: dict[str, float]) -> float:
+        """
+        Compute total portfolio value using live prices.
+        Call with {symbol: current_price} at end of each bar for accurate P&L.
+        """
+        live_value = self.cash
+        for symbol, pos in self.positions.items():
+            price = prices.get(symbol, pos.entry_price)
+            if pos.direction == "LONG":
+                live_value += price * pos.quantity
+            else:  # SHORT: profit when price falls
+                live_value += pos.entry_price * pos.quantity  # proceeds already in cash
+                live_value -= price * pos.quantity             # cost to cover
+        return round(live_value, 2)
+
     def summary(self) -> dict[str, Any]:
         return {
             "cash": round(self.cash, 2),
+            "position_cost_basis": round(self.position_cost_basis, 2),
             "total_value": round(self.total_value, 2),
             "total_pnl": round(self.total_pnl, 2),
             "open_positions": len(self.positions),
@@ -147,6 +168,14 @@ class SimulatedExecutor:
         # ── Update cash / positions ────────────────────────────────────────────
         pnl = 0.0
         if direction == "BUY":
+            if symbol in self.portfolio.positions:
+                existing = self.portfolio.positions[symbol]
+                log.warning(
+                    "simulated_executor.overwrite_position",
+                    symbol=symbol,
+                    existing_qty=existing.quantity,
+                    existing_entry=existing.entry_price,
+                )
             self.portfolio.cash -= cost
             self.portfolio.positions[symbol] = Position(
                 symbol=symbol, direction="LONG", quantity=quantity,

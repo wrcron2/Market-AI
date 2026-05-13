@@ -1,5 +1,5 @@
 ---
-description: Conventions for the three-stage AI trading signal pipeline (Generate → Debate → Risk)
+description: Conventions for the three-stage AI trading signal pipeline (Generate → Debate → Risk), including indicator interpretation and signal confidence calibration
 ---
 
 # Trading Signal Pipeline Conventions
@@ -191,3 +191,172 @@ with ThreadPoolExecutor(max_workers=PIPELINE_WORKERS) as pool:
 - Worker exceptions logged but don't crash the loop
 - Orchestrator result checked for `submitted` flag before calling executor
 - Mode (yahoo/ibkr) checked once at bar start and used for the entire bar
+
+---
+
+## Indicator Interpretation Guide
+
+These are the exact indicators computed by `yahoo_feed.py` and passed to the signal agent. Use these rules when writing or reviewing agent prompts, evaluating signal quality, or calibrating confidence scores.
+
+### RSI (rsi_14) — Momentum / Overbought-Oversold
+
+| Value | Meaning | Signal implication |
+|---|---|---|
+| < 30 | Oversold | BUY bias — potential mean reversion up |
+| 30–45 | Recovering | Weak BUY bias — confirm with MACD |
+| 45–55 | Neutral | No directional edge — avoid low-conviction signals |
+| 55–70 | Trending up | BUY momentum — strong if volume confirms |
+| > 70 | Overbought | SELL / SHORT bias — fade the move or wait for reversal |
+
+Rules:
+- RSI alone is not a signal — it must confirm with at least one other indicator
+- RSI divergence (price makes new high, RSI does not) is a reversal warning; penalise `initial_confidence` by 0.05–0.10
+- In strong uptrends (spy_trend = "uptrend"), overbought readings can persist — raise the SELL threshold to 75+
+
+### MACD / MACD Signal — Trend and Momentum Crossovers
+
+- `macd` = 12-EMA minus 26-EMA (the MACD line)
+- `macd_signal` = 9-EMA of MACD (the signal line)
+
+| Condition | Meaning |
+|---|---|
+| `macd > macd_signal` and both positive | Strong uptrend — BUY confirmation |
+| `macd > macd_signal` but both negative | Recovery from downtrend — weak BUY |
+| `macd < macd_signal` and both negative | Strong downtrend — SELL / SHORT confirmation |
+| `macd < macd_signal` but both positive | Momentum fading — watch for reversal |
+| `macd` crosses above `macd_signal` | Bullish crossover — BUY signal trigger |
+| `macd` crosses below `macd_signal` | Bearish crossover — SELL signal trigger |
+
+Rules:
+- A crossover in the direction of `spy_trend` is stronger than a counter-trend crossover
+- MACD crossovers near zero line are more reliable than crossovers far from zero
+
+### Bollinger Bands (bb_upper / bb_lower) — Volatility and Price Extremes
+
+```
+Price near bb_upper  →  price at top of normal range → overbought / SELL bias
+Price near bb_lower  →  price at bottom of range     → oversold / BUY bias
+Price outside bands  →  breakout or extreme move
+```
+
+How to compute band position from snapshot:
+```python
+# BB %B: where is close within the band? 0 = at lower, 1 = at upper
+bb_pct_b = (close - bb_lower) / (bb_upper - bb_lower)
+```
+
+| bb_pct_b | Meaning |
+|---|---|
+| < 0.0 | Below lower band — extreme oversold, potential reversal BUY |
+| 0.0–0.2 | Near lower band — oversold zone |
+| 0.4–0.6 | Mid-band — no edge |
+| 0.8–1.0 | Near upper band — overbought zone |
+| > 1.0 | Above upper band — breakout or blow-off top |
+
+Rules:
+- Bollinger Band squeeze (upper − lower is narrow) signals a volatility expansion is coming — direction unknown, hold off or reduce quantity
+- Breakouts above `bb_upper` with volume > `volume_sma20` are genuine breakouts; below `bb_lower` with high volume are breakdowns
+
+### ATR (atr_14) — Volatility / Position Sizing
+
+ATR = Average True Range over 14 days = typical daily price swing in dollars.
+
+Uses in this app:
+1. **Stop distance proxy** — a rational stop loss is 1.5–2× ATR from entry
+2. **Position sizing check** — high ATR relative to price means higher risk per share; reduce `quantity_multiplier` in risk agent
+3. **Volatility filter** — ATR / close > 5% means very volatile; penalise `initial_confidence` by 0.05
+
+```python
+# ATR as % of price — use this in risk agent prompts
+atr_pct = atr_14 / close * 100
+# > 3%  → elevated volatility, consider quantity reduction
+# > 5%  → high volatility, penalise confidence
+# > 8%  → extreme, block unless very high conviction
+```
+
+### Volume vs volume_sma20 — Conviction
+
+| Ratio | Meaning |
+|---|---|
+| volume < 0.5 × volume_sma20 | Very low volume — signal is weak, reduce confidence |
+| volume 0.8–1.2 × volume_sma20 | Normal — neutral |
+| volume > 1.5 × volume_sma20 | Above-average — conviction behind the move |
+| volume > 2.0 × volume_sma20 | High conviction — boost confidence by 0.03–0.05 |
+
+### SMA 20 / SMA 50 — Trend Direction
+
+```
+close > sma_20 > sma_50  →  uptrend stack — BUY preferred
+close < sma_20 < sma_50  →  downtrend stack — SELL/SHORT preferred
+sma_20 crosses above sma_50  →  golden cross — medium-term BUY signal
+sma_20 crosses below sma_50  →  death cross — medium-term SELL signal
+```
+
+---
+
+## Market Context Rules
+
+These fields come from `market_context` in the snapshot. They are macro-level and override symbol-level signals when extreme.
+
+### VIX — Market Fear Gauge
+
+Computed once per bar in `yahoo_feed._classify_market_sentiment()`:
+
+| VIX level | Regime | Action |
+|---|---|---|
+| < 15 | Risk-on — complacency | Normal signal flow, full position sizes allowed |
+| 15–20 | Normal | Standard operation |
+| 20–25 | Elevated concern | Reduce `quantity_multiplier` to 0.75, tighten confidence floor |
+| 25–30 | Risk-off | Reduce quantity to 0.5, BUY signals need extra confirmation |
+| > 30 | Fear / crisis | Block BUY signals unless RSI < 25 + volume spike; SHORT/COVER allowed |
+| > 40 | Extreme fear | Block all NEW BUY signals; only COVER (close shorts) passes |
+
+### SPY Trend — Broad Market Direction
+
+Computed by `yahoo_feed._classify_trend("SPY")` (price vs 20-day SMA ±1%):
+
+| spy_trend | BUY signals | SELL/SHORT signals |
+|---|---|---|
+| uptrend | Preferred — high conviction | Require stronger confirmation (RSI > 70, volume spike) |
+| sideways | Require multi-indicator agreement | Require multi-indicator agreement |
+| downtrend | Require RSI < 30 + volume spike | Preferred — high conviction |
+
+### Sector Flow
+
+Derived from VIX in `_classify_market_sentiment()`:
+- `risk-on` (VIX < 15) — growth and momentum stocks favoured
+- `neutral` (VIX 15–25) — balanced
+- `risk-off` (VIX > 25) — defensives favoured, reduce exposure to high-beta names
+
+---
+
+## Signal Confidence Calibration
+
+The `initial_confidence` from the signal agent should reflect how many indicators agree. This is a reference table for prompt engineering and output validation:
+
+| Indicators aligned | Suggested initial_confidence range |
+|---|---|
+| 1 indicator only | 0.60–0.70 — too weak, likely blocked by risk agent |
+| 2 indicators agree | 0.70–0.80 |
+| 3 indicators agree | 0.80–0.88 |
+| 4+ indicators agree + volume confirms | 0.88–0.95 |
+| All indicators + macro tailwind | 0.95–0.98 |
+
+Rules:
+- Never output `initial_confidence = 1.0` — no signal is certain
+- `initial_confidence < 0.75` will almost always be blocked (debate −0.05 to −0.15, then risk floor 0.90)
+- The signal agent should justify its confidence in `reasoning` by citing which specific indicators agree
+
+### Confidence flow through the pipeline
+
+```
+signal_agent → initial_confidence (0.0–1.0)
+    ↓ debate agent adjusts
+debate_agent → adjusted_confidence (can go up or down ±0.15 typical)
+    ↓ risk agent adjusts
+risk_agent   → final_confidence (clamped 0.0–1.0)
+    ↓ hard floor check
+MIN_SIGNAL_CONFIDENCE (default 0.90 via env var) → block if below
+```
+
+A signal must survive all three stages. Design prompts so that genuinely strong setups reach 0.90+ after all adjustments.

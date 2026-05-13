@@ -96,14 +96,14 @@ class Orchestrator:
         """Node 2: Run bull-bear debate on the candidate signal."""
         if not state.get("signal"):
             return state
-        debate = self.debate_agent.debate(state["signal"])
+        debate = self.debate_agent.debate(state["signal"], state["market_snapshot"])
         return {**state, "debate_result": debate}
 
     def _node_risk(self, state: AgentState) -> AgentState:
         """Node 3: Run risk assessment and position sizing."""
         if not state.get("debate_result"):
             return state
-        risk = self.risk_agent.assess(state["signal"], state["debate_result"])
+        risk = self.risk_agent.assess(state["signal"], state["debate_result"], state["market_snapshot"])
         return {**state, "risk_result": risk}
 
     def _node_submit(self, state: AgentState) -> AgentState:
@@ -194,8 +194,3 @@ class Orchestrator:
         g.add_edge("submit", END)
 
         return g.compile()
-
-
-def _now_ms() -> int:
-    import time
-    return int(time.time() * 1000)

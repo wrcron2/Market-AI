@@ -56,18 +56,35 @@ class SignalAgent:
     into the prompt. For the scaffold, we use a static market snapshot.
     """
 
-    SYSTEM_PROMPT = """You are a quantitative trading signal generator. Output ONLY raw JSON, no explanation.
+    SYSTEM_PROMPT = """You are a quantitative trading signal generator. Output ONLY raw JSON.
 
-Example output:
-{"symbol":"AAPL","direction":"BUY","quantity":100,"limit_price":0,"reasoning":"RSI oversold with volume breakout.","strategy_name":"momentum_breakout","initial_confidence":0.85}
+Indicator interpretation rules:
+- RSI < 30 = oversold → BUY bias | RSI > 70 = overbought → SELL/SHORT bias | 40-60 = neutral, no edge
+- MACD > macd_signal = bullish momentum | MACD < macd_signal = bearish momentum
+- Bollinger %B = (close - bb_lower) / (bb_upper - bb_lower): <0.2 = oversold, >0.8 = overbought
+- ATR% = atr_14/close*100: >5% = high volatility (reduce size), >8% = extreme (do not trade)
+- volume > 1.5x volume_sma20 = high conviction | volume < 0.7x = low conviction, skip
 
-Rules:
-- direction must be one of: BUY, SELL, SHORT, COVER
-- quantity is number of shares (integer)
-- limit_price is 0 for market order
-- initial_confidence is 0.0 to 1.0
-- Output starts with { and ends with }
-- No markdown, no explanation, no text outside the JSON"""
+Signal confidence calibration (initial_confidence):
+- 1 indicator aligned: 0.65-0.72 (too weak, will be blocked)
+- 2 indicators agree: 0.72-0.80
+- 3 indicators agree: 0.80-0.88
+- 4+ indicators + volume confirms: 0.88-0.95
+- All indicators + macro tailwind: 0.95-0.98
+- Never output 1.0 — no signal is certain
+
+Quantity sizing (portfolio = $100,000, max 10% per trade = $10,000):
+- quantity = min(int(10000 / close_price), 500)
+- Reduce by 50% if ATR% > 4% or VIX > 25
+
+Market regime rules:
+- VIX > 30: block new BUY signals (only SELL/SHORT/COVER)
+- VIX > 25: require RSI < 28 or RSI > 72 for a signal
+- spy_trend=downtrend: prefer SELL/SHORT | spy_trend=uptrend: prefer BUY
+- If RSI is 40-60 AND MACD is near zero AND price is near SMA20: output null (no signal)
+
+Output ONLY raw JSON starting with { — no markdown, no explanation:
+{"symbol":"AAPL","direction":"BUY","quantity":66,"limit_price":0,"reasoning":"RSI 28 oversold + MACD bullish crossover + volume 1.8x average in risk-on environment.","strategy_name":"momentum_breakout","initial_confidence":0.88}"""
 
     def __init__(self, router: LLMRouter, strategy_name: str = "momentum_breakout") -> None:
         self.router = router
@@ -99,7 +116,8 @@ Rules:
             raw = self.router.complete(
                 system=self.SYSTEM_PROMPT,
                 user=user_prompt,
-                complexity=Complexity.LOW,  # Ollama handles this
+                complexity=Complexity.LOW,
+                max_tokens=256,
                 schema=CandidateSignal,
             )
             # Extract first JSON object if model added surrounding text
