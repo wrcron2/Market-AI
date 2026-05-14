@@ -201,6 +201,30 @@ func validTransition(from, to OrderStatus) bool {
 	return false
 }
 
+// ─── Stats ────────────────────────────────────────────────────────────────────
+
+type OrderStats struct {
+	TotalSignals  int     `json:"totalSignals"`
+	Approved      int     `json:"approved"`
+	Rejected      int     `json:"rejected"`
+	Executed      int     `json:"executed"`
+	AvgConfidence float64 `json:"avgConfidence"`
+}
+
+// GetStats returns aggregate counts from the staged_orders table.
+func (d *DB) GetStats() (*OrderStats, error) {
+	row := d.QueryRow(`
+		SELECT
+			COUNT(*),
+			SUM(CASE WHEN status IN ('APPROVED','EXECUTED') THEN 1 ELSE 0 END),
+			SUM(CASE WHEN status = 'REJECTED' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN status = 'EXECUTED' THEN 1 ELSE 0 END),
+			COALESCE(AVG(confidence), 0)
+		FROM staged_orders`)
+	var s OrderStats
+	return &s, row.Scan(&s.TotalSignals, &s.Approved, &s.Rejected, &s.Executed, &s.AvgConfidence)
+}
+
 // ─── Positions ────────────────────────────────────────────────────────────────
 
 type PositionStatus string

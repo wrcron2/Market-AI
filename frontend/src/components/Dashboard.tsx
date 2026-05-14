@@ -101,7 +101,7 @@ export function Dashboard() {
   })
 
   useEffect(() => {
-    const load = async () => {
+    const loadPending = async () => {
       try {
         const res = await fetch(`${API_BASE}/orders/pending`)
         if (!res.ok) return
@@ -109,8 +109,19 @@ export function Dashboard() {
         setPendingOrders(data.orders ?? [])
       } catch { /* backend not yet up */ }
     }
-    load()
-    const interval = setInterval(load, 30_000)
+
+    const loadStats = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/stats`)
+        if (!res.ok) return
+        const data: Stats = await res.json()
+        setStats(data)
+      } catch { /* backend not yet up */ }
+    }
+
+    loadPending()
+    loadStats()
+    const interval = setInterval(loadPending, 30_000)
     return () => clearInterval(interval)
   }, [])
 

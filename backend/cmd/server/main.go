@@ -67,6 +67,19 @@ func main() {
 	autoExEnabled := false
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		stats, err := database.GetStats()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, stats)
+	})
+
 	mux.HandleFunc("/api/orders/pending", glHandler.ListPending)
 	mux.HandleFunc("/api/orders/approve", glHandler.Approve)
 	mux.HandleFunc("/api/orders/reject", glHandler.Reject)
