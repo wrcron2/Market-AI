@@ -316,6 +316,15 @@ func (d *DB) ListOpenPositions() ([]*Position, error) {
 	return out, nil
 }
 
+// SyncFillPrice updates entry_price once an Alpaca market order actually fills.
+func (d *DB) SyncFillPrice(id string, fillPrice float64) error {
+	_, err := d.Exec(
+		`UPDATE positions SET entry_price = ?, updated_at = ? WHERE id = ? AND entry_price = 0`,
+		fillPrice, time.Now().UnixMilli(), id,
+	)
+	return err
+}
+
 // ClosePosition records exit details and transitions status to CLOSED.
 func (d *DB) ClosePosition(id string, exitPrice, realizedPnl float64, reason string) error {
 	now := time.Now().UnixMilli()

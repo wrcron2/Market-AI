@@ -152,6 +152,27 @@ func main() {
 		}
 	})
 
+	mux.HandleFunc("/api/positions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.PathValue("id")
+		var req struct {
+			EntryPrice float64 `json:"entry_price"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if err := database.SyncFillPrice(id, req.EntryPrice); err != nil {
+			logger.Error("sync fill price failed", zap.Error(err))
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"success": true})
+	})
+
 	mux.HandleFunc("/api/positions/{id}/close", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

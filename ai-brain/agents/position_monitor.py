@@ -91,19 +91,36 @@ class PositionMonitorAgent:
             log.debug("position_monitor.no_open_positions")
             return
 
+        # Build symbol → DB record map so we have the correct signal_id for closes
+        # and can detect positions whose fill price needs syncing.
+        db_positions = self.store.list_open_positions()
+        db_by_symbol: dict[str, dict] = {p["symbol"]: p for p in db_positions}
+
+        # Sync fill prices for any position where entry_price is still 0 in the DB
+        for pos in positions:
+            sym = pos["symbol"]
+            fill_price = float(pos.get("avg_entry_price") or 0)
+            db_rec = db_by_symbol.get(sym)
+            if db_rec and db_rec.get("entry_price", 0) == 0 and fill_price > 0:
+                self.store.sync_fill_price(db_rec["id"], fill_price)
+                db_rec["entry_price"] = fill_price   # update local copy too
+                log.info("position_monitor.fill_price_synced",
+                         symbol=sym, fill_price=fill_price)
+
         log.info("position_monitor.cycle_start", count=len(positions))
         is_eod = self.alpaca.is_near_market_close()
 
         for pos in positions:
             try:
-                self._evaluate(pos, is_eod=is_eod)
+                db_rec = db_by_symbol.get(pos["symbol"])
+                self._evaluate(pos, is_eod=is_eod, db_record=db_rec)
             except Exception as exc:
                 log.error("position_monitor.eval_error",
                           symbol=pos.get("symbol"), error=str(exc))
 
     # ── Per-position evaluation ────────────────────────────────────────────────
 
-    def _evaluate(self, pos: dict[str, Any], *, is_eod: bool) -> None:
+    def _evaluate(self, pos: dict[str, Any], *, is_eod: bool, db_record: dict | None = None) -> None:
         symbol     = pos["symbol"]
         plpc       = float(pos["unrealized_plpc"]) * 100   # already a fraction, convert to %
         pl         = float(pos["unrealized_pl"])
@@ -115,27 +132,28 @@ class PositionMonitorAgent:
         log.info("position_monitor.evaluating",
                  symbol=symbol, plpc=round(plpc, 2), pl=round(pl, 2))
 
+        # Resolve the signal_id from our DB record (correct UUID for store calls).
+        # Falls back to Alpaca's asset_id only if no DB record found.
+        signal_id = db_record["id"] if db_record else pos.get("asset_id", symbol)
+
         # ── Layer 1: Hard rules — no LLM, instant ─────────────────────────────
         if plpc <= -self.stop_loss_pct:
-            self._sell(pos, reason=f"stop_loss ({plpc:.1f}%)", entry_price=entry_price,
-                       current=current, qty=qty, pl=pl)
+            self._sell(pos, signal_id=signal_id, reason=f"stop_loss ({plpc:.1f}%)",
+                       entry_price=entry_price, current=current, qty=qty, pl=pl)
             return
 
         if plpc >= self.take_profit_pct:
-            self._sell(pos, reason=f"take_profit ({plpc:.1f}%)", entry_price=entry_price,
-                       current=current, qty=qty, pl=pl)
+            self._sell(pos, signal_id=signal_id, reason=f"take_profit ({plpc:.1f}%)",
+                       entry_price=entry_price, current=current, qty=qty, pl=pl)
             return
-
-        # Layer 1: Max hold time (entry_time from Alpaca is ISO; use DB if needed)
-        # Alpaca doesn't expose entry date directly in position, so we skip this check
-        # here and rely on the DB-level query if needed (future improvement).
 
         # ── Layer 4: Big moves or EOD → Bedrock directly ──────────────────────
         is_big_move = abs(plpc) >= self.stop_loss_pct or plpc >= (self.take_profit_pct * 0.7)
         if is_big_move or is_eod:
             decision = self._ask_bedrock(pos, plpc, pl, current, entry_price, market_val)
             if decision == "SELL":
-                self._sell(pos, reason=f"bedrock_sell ({'eod' if is_eod else 'big_move'})",
+                self._sell(pos, signal_id=signal_id,
+                           reason=f"bedrock_sell ({'eod' if is_eod else 'big_move'})",
                            entry_price=entry_price, current=current, qty=qty, pl=pl)
             return
 
@@ -143,7 +161,6 @@ class PositionMonitorAgent:
         try:
             ollama_decision = self._ask_ollama(pos, plpc, pl, current, entry_price, market_val)
         except Exception as exc:
-            # Layer 5: Ollama unreachable → HOLD + alert
             log.error("position_monitor.ollama_unreachable", symbol=symbol, error=str(exc))
             self._broadcast_llm_alert(symbol, str(exc))
             return
@@ -153,13 +170,13 @@ class PositionMonitorAgent:
             try:
                 bedrock_decision = self._ask_bedrock(pos, plpc, pl, current, entry_price, market_val)
             except Exception as exc:
-                # Layer 5: Bedrock unreachable → HOLD + alert
                 log.error("position_monitor.bedrock_unreachable", symbol=symbol, error=str(exc))
                 self._broadcast_llm_alert(symbol, str(exc))
                 return
 
             if bedrock_decision == "SELL":
-                self._sell(pos, reason=f"bedrock_confirmed_sell ({ollama_decision.lower()})",
+                self._sell(pos, signal_id=signal_id,
+                           reason=f"bedrock_confirmed_sell ({ollama_decision.lower()})",
                            entry_price=entry_price, current=current, qty=qty, pl=pl)
             else:
                 log.info("position_monitor.bedrock_hold_overrule",
@@ -231,6 +248,7 @@ class PositionMonitorAgent:
     def _sell(
         self,
         pos: dict[str, Any],
+        signal_id: str,
         reason: str,
         entry_price: float,
         current: float,
@@ -238,10 +256,6 @@ class PositionMonitorAgent:
         pl: float,
     ) -> None:
         symbol = pos["symbol"]
-        # Find the signal_id from our DB (symbol is the key for open positions).
-        # We pass the symbol as signal_id for now; the store maps by position id.
-        signal_id = pos.get("asset_id", symbol)   # Alpaca asset_id as fallback key
-
         log.info("position_monitor.selling",
                  symbol=symbol, reason=reason, pl=round(pl, 2))
         try:

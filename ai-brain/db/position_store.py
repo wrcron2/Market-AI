@@ -72,6 +72,30 @@ class PositionStore:
             log.error("position_store.close_failed", signal_id=signal_id, error=str(exc))
             return False
 
+    def list_open_positions(self) -> list[dict[str, Any]]:
+        """Return all OPEN positions from the Go backend DB."""
+        try:
+            resp = self._client.get("/api/positions")
+            resp.raise_for_status()
+            return resp.json().get("positions") or []
+        except Exception as exc:
+            log.error("position_store.list_failed", error=str(exc))
+            return []
+
+    def sync_fill_price(self, signal_id: str, fill_price: float) -> bool:
+        """Update entry_price once an Alpaca order fills (was 0 for pending orders)."""
+        try:
+            resp = self._client.patch(
+                f"/api/positions/{signal_id}",
+                json={"entry_price": fill_price},
+            )
+            resp.raise_for_status()
+            log.info("position_store.fill_price_synced", signal_id=signal_id, fill_price=fill_price)
+            return True
+        except Exception as exc:
+            log.error("position_store.sync_fill_failed", signal_id=signal_id, error=str(exc))
+            return False
+
     def get_today_limits(self) -> dict[str, Any]:
         try:
             resp = self._client.get("/api/trading/limits")
