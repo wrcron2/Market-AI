@@ -61,7 +61,6 @@ class Orchestrator:
         self.risk_agent     = RiskAgent(self.router)
         self._alpaca        = alpaca
         self._position_store = position_store
-        self._auto_execute  = os.getenv("AUTO_EXECUTE", "false").lower() == "true"
 
         backend_host = os.getenv("BRAIN_HOST", "127.0.0.1")
         backend_port = os.getenv("GO_SERVER_PORT", "8080")
@@ -78,9 +77,6 @@ class Orchestrator:
         If AUTO_EXECUTE is true (checked live per run), executes on Alpaca
         after a successful submission to the Go backend.
         """
-        # Re-read AUTO_EXECUTE each run so the dashboard toggle takes effect
-        # without restarting the process.
-        self._auto_execute = os.getenv("AUTO_EXECUTE", "false").lower() == "true"
         initial: AgentState = {
             "market_snapshot": market_snapshot,
             "signal": None,
@@ -167,7 +163,13 @@ class Orchestrator:
         Skipped entirely when AUTO_EXECUTE=false (manual Green Light flow).
         Checks today's daily loss limit before executing.
         """
-        if not self._auto_execute or self._alpaca is None:
+        if self._alpaca is None or not self._is_auto_execute_enabled():
+            return state
+
+        # Never place orders when the market is closed
+        if not self._alpaca.is_market_open():
+            sym = state["signal"].symbol if state.get("signal") else "?"
+            log.info("orchestrator.market_closed_skip", symbol=sym)
             return state
 
         signal = state["signal"]
@@ -233,6 +235,14 @@ class Orchestrator:
             log.error("orchestrator.execute_error",
                       signal_id=signal.signal_id, error=str(exc))
             return {**state, "error": str(exc), "executed": False}
+
+    def _is_auto_execute_enabled(self) -> bool:
+        """Check the dashboard toggle state from the Go backend (live, per run)."""
+        try:
+            resp = httpx.get(f"{self._backend_base}/api/auto-execute", timeout=3)
+            return resp.json().get("enabled", False)
+        except Exception:
+            return False   # fail safe — never auto-execute if backend unreachable
 
     # ── Routing conditions ─────────────────────────────────────────────────────
 

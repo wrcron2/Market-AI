@@ -515,3 +515,6 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
   font-weight: 600; white-space: nowrap;
 }
 .close-reason-tag.muted { background: none; color: var(--text-muted); }
+.pending-tag { background: rgba(234,179,8,0.15); color: var(--yellow); }
+.pending-row td { opacity: 0.75; }
+.text-muted { color: var(--text-muted); }

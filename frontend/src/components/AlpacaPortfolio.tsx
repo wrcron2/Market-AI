@@ -122,10 +122,10 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
       {/* Open positions table */}
       <h3 className="alpaca-section-title">
         Open Positions
-        <span className="badge">{positions.length}</span>
+        <span className="badge">{positions.length + dbPositions.filter(p => p.status === 'OPEN' && !positions.find(ap => ap.symbol === p.symbol)).length}</span>
       </h3>
 
-      {positions.length === 0 ? (
+      {positions.length === 0 && dbPositions.filter(p => p.status === 'OPEN').length === 0 ? (
         <div className="alpaca-empty">No open positions</div>
       ) : (
         <div className="positions-table-wrap">
@@ -140,24 +140,20 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                 <th>Mkt Value</th>
                 <th>Unrealized P&L</th>
                 <th>P&L %</th>
-                <th>Agent</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
+              {/* Filled positions from Alpaca live feed */}
               {positions.map((pos) => {
                 const plpc    = parseFloat(pos.unrealized_plpc) * 100
                 const pl      = parseFloat(pos.unrealized_pl)
                 const isLong  = pos.side === 'long'
-                const dbPos   = dbPositions.find((d) => d.symbol === pos.symbol)
                 const plColor = pl >= 0 ? 'pnl-positive' : 'pnl-negative'
                 return (
                   <tr key={pos.symbol}>
                     <td className="pos-symbol">{pos.symbol}</td>
-                    <td>
-                      <span className={`direction-badge ${isLong ? 'buy' : 'sell'}`}>
-                        {isLong ? 'LONG' : 'SHORT'}
-                      </span>
-                    </td>
+                    <td><span className={`direction-badge ${isLong ? 'buy' : 'sell'}`}>{isLong ? 'LONG' : 'SHORT'}</span></td>
                     <td>{parseFloat(pos.qty).toLocaleString()}</td>
                     <td>${parseFloat(pos.avg_entry_price).toFixed(2)}</td>
                     <td>${parseFloat(pos.current_price).toFixed(2)}</td>
@@ -171,16 +167,26 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                         {plpc >= 0 ? '+' : ''}{plpc.toFixed(2)}%
                       </span>
                     </td>
-                    <td>
-                      {dbPos ? (
-                        <span className="close-reason-tag">{dbPos.close_reason || 'monitor'}</span>
-                      ) : (
-                        <span className="close-reason-tag muted">—</span>
-                      )}
-                    </td>
+                    <td><span className="close-reason-tag">filled</span></td>
                   </tr>
                 )
               })}
+              {/* Pending positions: in our DB but not yet filled by Alpaca (market closed) */}
+              {dbPositions
+                .filter(p => p.status === 'OPEN' && !positions.find(ap => ap.symbol === p.symbol))
+                .map((p) => (
+                  <tr key={p.id} className="pending-row">
+                    <td className="pos-symbol">{p.symbol}</td>
+                    <td><span className={`direction-badge ${p.direction === 'LONG' ? 'buy' : 'sell'}`}>{p.direction}</span></td>
+                    <td>{p.quantity.toLocaleString()}</td>
+                    <td className="text-muted">{p.entry_price > 0 ? `$${p.entry_price.toFixed(2)}` : '—'}</td>
+                    <td className="text-muted">—</td>
+                    <td className="text-muted">—</td>
+                    <td className="text-muted">—</td>
+                    <td className="text-muted">—</td>
+                    <td><span className="close-reason-tag pending-tag">⏳ pending fill</span></td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
