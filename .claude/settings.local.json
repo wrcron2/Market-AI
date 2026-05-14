@@ -12,7 +12,10 @@
       "Bash(python3 -c ' *)",
       "Bash(xargs ls *)",
       "mcp__3e77aca3-fb41-4c08-97a5-e89ce1b64666__notion-fetch",
-      "mcp__3e77aca3-fb41-4c08-97a5-e89ce1b64666__notion-update-page"
+      "mcp__3e77aca3-fb41-4c08-97a5-e89ce1b64666__notion-update-page",
+      "Bash(aws iam list-policies *)",
+      "Bash(brew list *)",
+      "Bash(pip3 show *)"
     ]
   }
 }
