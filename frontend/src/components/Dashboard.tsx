@@ -3,6 +3,8 @@ import { GreenLightPanel } from './GreenLightPanel'
 import { SignalFeed, type FeedEvent } from './SignalFeed'
 import { PortfolioStats, type Stats } from './PortfolioStats'
 import { TradingModeToggle, useTradingMode } from './TradingModeToggle'
+import { AutoExecuteToggle, useAutoExecute } from './AutoExecuteToggle'
+import { AlpacaPortfolio } from './AlpacaPortfolio'
 import { useWebSocket } from '../hooks/useWebSocket'
 import type { StagedOrder, ListPendingResponse } from '../types'
 
@@ -10,20 +12,16 @@ const API_BASE = '/api'
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 const MAX_FEED_EVENTS = 100
 
-/**
- * Dashboard — the root component.
- *
- * Responsibilities:
- * - Maintains the pending orders queue (polled + WebSocket push)
- * - Manages the live feed event log
- * - Provides Green Light / Reject actions to child components
- * - Tracks session-level KPI stats
- */
+type Tab = 'signals' | 'portfolio'
+
 export function Dashboard() {
-  const { mode, changeMode } = useTradingMode()
+  const { mode, changeMode }           = useTradingMode()
+  const { enabled: autoExec, toggle }  = useAutoExecute()
+  const [activeTab, setActiveTab]      = useState<Tab>('signals')
   const [pendingOrders, setPendingOrders] = useState<StagedOrder[]>([])
-  const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([])
-  const [wsConnected, setWsConnected] = useState(false)
+  const [feedEvents, setFeedEvents]    = useState<FeedEvent[]>([])
+  const [wsConnected, setWsConnected]  = useState(false)
+  const [llmAlert, setLlmAlert]        = useState<string | null>(null)
   const [stats, setStats] = useState<Stats>({
     totalSignals: 0,
     approved: 0,
@@ -32,18 +30,15 @@ export function Dashboard() {
     avgConfidence: 0,
   })
 
-  // ── Feed helper ────────────────────────────────────────────────────────────
   const pushEvent = useCallback((event: FeedEvent) => {
     setFeedEvents((prev) => [event, ...prev].slice(0, MAX_FEED_EVENTS))
   }, [])
 
-  // ── Stats helper ───────────────────────────────────────────────────────────
   const updateStats = useCallback((type: FeedEvent['type'], confidence?: number) => {
     setStats((prev) => {
       const next = { ...prev }
       if (type === 'staged') {
         next.totalSignals += 1
-        // Running average of confidence
         if (confidence !== undefined) {
           next.avgConfidence =
             (prev.avgConfidence * prev.totalSignals + confidence) / next.totalSignals
@@ -56,10 +51,9 @@ export function Dashboard() {
     })
   }, [])
 
-  // ── WebSocket handlers ─────────────────────────────────────────────────────
   useWebSocket({
     url: WS_URL,
-    onConnect: () => setWsConnected(true),
+    onConnect:    () => setWsConnected(true),
     onDisconnect: () => setWsConnected(false),
     onMessage: {
       order_staged: (payload) => {
@@ -89,10 +83,23 @@ export function Dashboard() {
         const { signal_id, error } = payload as { signal_id: string; error: string }
         pushEvent({ id: signal_id, type: 'failed', message: error, timestamp: Date.now() })
       },
+      position_opened: () => {
+        // AlpacaPortfolio self-refreshes; this just nudges the tab indicator
+        if (activeTab !== 'portfolio') setActiveTab('portfolio')
+      },
+      position_closed: () => { /* AlpacaPortfolio handles its own refresh */ },
+      auto_execute_changed: (payload) => {
+        const { enabled } = payload as { enabled: boolean }
+        // Sync toggle state from server push (another session may have toggled it)
+        if (enabled !== autoExec) toggle(enabled)
+      },
+      llm_unreachable: (payload) => {
+        const { symbol, error } = payload as { symbol?: string; error?: string }
+        setLlmAlert(`${symbol ? symbol + ': ' : ''}${error ?? 'Unknown LLM failure'}`)
+      },
     },
   })
 
-  // ── Initial load of pending orders (REST poll) ─────────────────────────────
   useEffect(() => {
     const load = async () => {
       try {
@@ -100,27 +107,20 @@ export function Dashboard() {
         if (!res.ok) return
         const data: ListPendingResponse = await res.json()
         setPendingOrders(data.orders ?? [])
-      } catch {
-        // Backend not yet available — WebSocket push will hydrate the list.
-      }
+      } catch { /* backend not yet up */ }
     }
     load()
-    // Re-poll every 30s as a fallback if WebSocket misses an event.
     const interval = setInterval(load, 30_000)
     return () => clearInterval(interval)
   }, [])
 
-  // ── Green Light actions ────────────────────────────────────────────────────
   const approve = useCallback(async (signalId: string, comment: string) => {
     const res = await fetch(`${API_BASE}/orders/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ signal_id: signalId, comment }),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(text)
-    }
+    if (!res.ok) throw new Error(await res.text())
   }, [])
 
   const reject = useCallback(async (signalId: string, comment: string) => {
@@ -129,13 +129,9 @@ export function Dashboard() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ signal_id: signalId, comment }),
     })
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(text)
-    }
+    if (!res.ok) throw new Error(await res.text())
   }, [])
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="dashboard">
       <header className="dashboard-header">
@@ -145,19 +141,42 @@ export function Dashboard() {
         </div>
         <div className="header-right">
           <TradingModeToggle mode={mode} onChange={changeMode} />
+          <AutoExecuteToggle enabled={autoExec} onChange={toggle} />
         </div>
       </header>
 
       <PortfolioStats stats={stats} wsConnected={wsConnected} />
 
-      <div className="dashboard-body">
-        <GreenLightPanel
-          orders={pendingOrders}
-          onApprove={approve}
-          onReject={reject}
-        />
-        <SignalFeed events={feedEvents} />
+      {/* Tab bar */}
+      <div className="tab-bar">
+        <button
+          className={`tab-btn ${activeTab === 'signals' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('signals')}
+        >
+          Signals
+          {pendingOrders.length > 0 && (
+            <span className="tab-badge">{pendingOrders.length}</span>
+          )}
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'portfolio' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('portfolio')}
+        >
+          Alpaca Portfolio
+        </button>
       </div>
+
+      {activeTab === 'signals' ? (
+        <div className="dashboard-body">
+          <GreenLightPanel orders={pendingOrders} onApprove={approve} onReject={reject} />
+          <SignalFeed events={feedEvents} />
+        </div>
+      ) : (
+        <AlpacaPortfolio
+          llmAlert={llmAlert}
+          onClearAlert={() => setLlmAlert(null)}
+        />
+      )}
     </div>
   )
 }

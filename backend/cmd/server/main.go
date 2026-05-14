@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 
+	"github.com/marketflow/backend/internal/alpaca"
 	"github.com/marketflow/backend/internal/db"
 	"github.com/marketflow/backend/internal/greenlight"
 	grpcbridge "github.com/marketflow/backend/internal/grpc"
@@ -57,12 +59,179 @@ func main() {
 	go hub.Run()
 
 	// ─── Green Light HTTP Handler ─────────────────────────────────────────────
-	glHandler := greenlight.NewHandler(database, hub, modeManager, logger)
+	glHandler    := greenlight.NewHandler(database, hub, modeManager, logger)
+	alpacaProxy  := alpaca.NewHandler()
+
+	// ─── Auto-Execute toggle (in-memory, resets to false on restart) ──────────
+	var autoExMu   sync.RWMutex
+	autoExEnabled := false
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/orders/pending", glHandler.ListPending)
 	mux.HandleFunc("/api/orders/approve", glHandler.Approve)
 	mux.HandleFunc("/api/orders/reject", glHandler.Reject)
+
+	// ─── Auto-Execute: Python calls this after placing an Alpaca order ────────
+	// Transitions: PENDING → APPROVED → EXECUTED (bypasses IBKR).
+	mux.HandleFunc("/api/orders/auto-execute", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			SignalID      string  `json:"signal_id"`
+			AlpacaOrderID string  `json:"alpaca_order_id"`
+			FillPrice     float64 `json:"fill_price"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if err := database.TransitionStatus(req.SignalID, db.StatusApproved, "auto-executor", "Auto-executed via Alpaca"); err != nil {
+			logger.Error("auto-execute approve failed", zap.Error(err))
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		if req.AlpacaOrderID != "" {
+			_ = database.SetIBKROrderID(req.SignalID, 0) // keeps the field non-null
+		}
+		if err := database.TransitionStatus(req.SignalID, db.StatusExecuted, "auto-executor", fmt.Sprintf("Alpaca order %s filled @ %.4f", req.AlpacaOrderID, req.FillPrice)); err != nil {
+			logger.Error("auto-execute execute failed", zap.Error(err))
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		hub.Broadcast("order_executed", map[string]any{
+			"signal_id":      req.SignalID,
+			"alpaca_order_id": req.AlpacaOrderID,
+			"auto_executed":  true,
+		})
+		writeJSON(w, map[string]any{"success": true, "signal_id": req.SignalID})
+	})
+
+	// ─── Positions ────────────────────────────────────────────────────────────
+	mux.HandleFunc("/api/positions", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			positions, err := database.ListOpenPositions()
+			if err != nil {
+				logger.Error("list positions failed", zap.Error(err))
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"positions": positions})
+
+		case http.MethodPost:
+			var p db.Position
+			if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+			if err := database.OpenPosition(&p); err != nil {
+				logger.Error("open position failed", zap.Error(err))
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			hub.Broadcast("position_opened", p)
+			writeJSON(w, map[string]any{"success": true, "id": p.ID})
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/positions/{id}/close", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		id := r.PathValue("id")
+		var req struct {
+			ExitPrice   float64 `json:"exit_price"`
+			RealizedPnl float64 `json:"realized_pnl"`
+			Reason      string  `json:"reason"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if err := database.ClosePosition(id, req.ExitPrice, req.RealizedPnl, req.Reason); err != nil {
+			logger.Error("close position failed", zap.Error(err))
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		dailyLimit, _ := strconv.ParseFloat(getEnv("DAILY_LOSS_LIMIT_USD", "1000.0"), 64)
+		_ = database.UpdateTodayPnl(req.RealizedPnl, dailyLimit)
+		hub.Broadcast("position_closed", map[string]any{
+			"id":           id,
+			"realized_pnl": req.RealizedPnl,
+			"reason":       req.Reason,
+		})
+		writeJSON(w, map[string]any{"success": true})
+	})
+
+	// ─── Trading limits ───────────────────────────────────────────────────────
+	mux.HandleFunc("/api/trading/limits", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		limits, err := database.GetTodayLimits()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, limits)
+	})
+
+	// ─── Alpaca proxy (read-only, for dashboard) ──────────────────────────────
+	mux.HandleFunc("/api/alpaca/account",   alpacaProxy.Account)
+	mux.HandleFunc("/api/alpaca/positions", alpacaProxy.Positions)
+
+	// ─── Internal broadcast (Python brain → dashboard via WebSocket) ──────────
+	// Only the brain calls this. No CORS check needed (same host).
+	mux.HandleFunc("/api/ws/broadcast", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var msg struct {
+			Type    string `json:"type"`
+			Payload any    `json:"payload"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&msg); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		hub.Broadcast(msg.Type, msg.Payload)
+		writeJSON(w, map[string]any{"ok": true})
+	})
+
+	// ─── Auto-Execute toggle ──────────────────────────────────────────────────
+	mux.HandleFunc("/api/auto-execute", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			autoExMu.RLock()
+			enabled := autoExEnabled
+			autoExMu.RUnlock()
+			writeJSON(w, map[string]any{"enabled": enabled})
+
+		case http.MethodPost:
+			var req struct{ Enabled bool `json:"enabled"` }
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+			autoExMu.Lock()
+			autoExEnabled = req.Enabled
+			autoExMu.Unlock()
+			hub.Broadcast("auto_execute_changed", map[string]any{"enabled": req.Enabled})
+			logger.Info("auto-execute toggled", zap.Bool("enabled", req.Enabled))
+			writeJSON(w, map[string]any{"enabled": req.Enabled})
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 	mux.HandleFunc("/api/mode", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -213,6 +382,11 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(v)
 }
 
 // corsMiddleware adds CORS headers for the local React dev server.

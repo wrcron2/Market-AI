@@ -58,11 +58,15 @@ class LLMRouter:
         complexity: Complexity = Complexity.LOW,
         max_tokens: int = 512,
         schema: Type[BaseModel] | None = None,
+        model_override: str | None = None,
     ) -> str:
-        """Run a chat completion and return the assistant text."""
+        """
+        Run a chat completion and return the assistant text.
+        model_override replaces the default Ollama model for this call only.
+        """
         if complexity == Complexity.HIGH:
             return self._bedrock_complete(system, user, max_tokens, schema=schema)
-        return self._ollama_complete(system, user, max_tokens, schema=schema)
+        return self._ollama_complete(system, user, max_tokens, schema=schema, model_override=model_override)
 
     def model_tag(self, complexity: Complexity) -> str:
         """Return a short label for the model used (stored on the signal)."""
@@ -79,11 +83,13 @@ class LLMRouter:
         user: str,
         max_tokens: int,
         schema: Type[BaseModel] | None = None,
+        model_override: str | None = None,
     ) -> str:
-        log.debug("ollama.complete", model=self.ollama_model)
+        model = model_override or self.ollama_model
+        log.debug("ollama.complete", model=model)
         fmt = schema.model_json_schema() if schema else "json"
         resp = self._ollama_client.chat(
-            model=self.ollama_model,
+            model=model,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user",   "content": user},

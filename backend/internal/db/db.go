@@ -201,6 +201,163 @@ func validTransition(from, to OrderStatus) bool {
 	return false
 }
 
+// ─── Positions ────────────────────────────────────────────────────────────────
+
+type PositionStatus string
+
+const (
+	PositionOpen   PositionStatus = "OPEN"
+	PositionClosed PositionStatus = "CLOSED"
+)
+
+// Position mirrors the positions table.
+type Position struct {
+	ID              string         `json:"id"`
+	Symbol          string         `json:"symbol"`
+	Direction       string         `json:"direction"`     // LONG | SHORT
+	Quantity        float64        `json:"quantity"`
+	EntryPrice      float64        `json:"entry_price"`
+	EntryTime       int64          `json:"entry_time"`
+	Confidence      float64        `json:"confidence"`
+	AlpacaOrderID   string         `json:"alpaca_order_id,omitempty"`
+	Status          PositionStatus `json:"status"`
+	ExitPrice       *float64       `json:"exit_price,omitempty"`
+	ExitTime        *int64         `json:"exit_time,omitempty"`
+	RealizedPnl     *float64       `json:"realized_pnl,omitempty"`
+	StopLossPrice   *float64       `json:"stop_loss_price,omitempty"`
+	TakeProfitPrice *float64       `json:"take_profit_price,omitempty"`
+	CloseReason     string         `json:"close_reason,omitempty"`
+	CreatedAt       int64          `json:"created_at"`
+	UpdatedAt       int64          `json:"updated_at"`
+}
+
+// TradingLimits mirrors the trading_limits table (one row per calendar day).
+type TradingLimits struct {
+	Date        string  `json:"date"`
+	RealizedPnl float64 `json:"realized_pnl"`
+	TradeCount  int     `json:"trade_count"`
+	IsHalted    bool    `json:"is_halted"`
+}
+
+// OpenPosition inserts a new open position record.
+func (d *DB) OpenPosition(p *Position) error {
+	now := time.Now().UnixMilli()
+	p.CreatedAt = now
+	p.UpdatedAt = now
+	p.Status = PositionOpen
+	_, err := d.Exec(`
+		INSERT INTO positions
+			(id, symbol, direction, quantity, entry_price, entry_time, confidence,
+			 alpaca_order_id, status, stop_loss_price, take_profit_price, created_at, updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		p.ID, p.Symbol, p.Direction, p.Quantity, p.EntryPrice, p.EntryTime, p.Confidence,
+		p.AlpacaOrderID, string(p.Status), p.StopLossPrice, p.TakeProfitPrice, p.CreatedAt, p.UpdatedAt,
+	)
+	return err
+}
+
+// GetPosition fetches a single position by ID.
+func (d *DB) GetPosition(id string) (*Position, error) {
+	row := d.QueryRow(`
+		SELECT id, symbol, direction, quantity, entry_price, entry_time, confidence,
+		       COALESCE(alpaca_order_id,''), status,
+		       exit_price, exit_time, realized_pnl,
+		       stop_loss_price, take_profit_price, COALESCE(close_reason,''),
+		       created_at, updated_at
+		FROM positions WHERE id = ?`, id)
+	return scanPosition(row)
+}
+
+// ListOpenPositions returns all positions with status OPEN.
+func (d *DB) ListOpenPositions() ([]*Position, error) {
+	rows, err := d.Query(`
+		SELECT id, symbol, direction, quantity, entry_price, entry_time, confidence,
+		       COALESCE(alpaca_order_id,''), status,
+		       exit_price, exit_time, realized_pnl,
+		       stop_loss_price, take_profit_price, COALESCE(close_reason,''),
+		       created_at, updated_at
+		FROM positions WHERE status = 'OPEN' ORDER BY entry_time DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Position
+	for rows.Next() {
+		p, err := scanPosition(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// ClosePosition records exit details and transitions status to CLOSED.
+func (d *DB) ClosePosition(id string, exitPrice, realizedPnl float64, reason string) error {
+	now := time.Now().UnixMilli()
+	_, err := d.Exec(`
+		UPDATE positions
+		SET status = 'CLOSED', exit_price = ?, exit_time = ?,
+		    realized_pnl = ?, close_reason = ?, updated_at = ?
+		WHERE id = ?`,
+		exitPrice, now, realizedPnl, reason, now, id,
+	)
+	return err
+}
+
+// GetTodayLimits returns today's trading limits row, creating it if absent.
+func (d *DB) GetTodayLimits() (*TradingLimits, error) {
+	today := time.Now().Format("2006-01-02")
+	_, _ = d.Exec(`
+		INSERT OR IGNORE INTO trading_limits (date, realized_pnl, trade_count, is_halted)
+		VALUES (?, 0.0, 0, 0)`, today)
+	row := d.QueryRow(`
+		SELECT date, realized_pnl, trade_count, is_halted
+		FROM trading_limits WHERE date = ?`, today)
+	var l TradingLimits
+	var halted int
+	if err := row.Scan(&l.Date, &l.RealizedPnl, &l.TradeCount, &halted); err != nil {
+		return nil, err
+	}
+	l.IsHalted = halted == 1
+	return &l, nil
+}
+
+// UpdateTodayPnl increments today's realized P&L and trade count.
+// Sets is_halted=1 if the cumulative loss exceeds limitUSD.
+func (d *DB) UpdateTodayPnl(addedPnl float64, limitUSD float64) error {
+	today := time.Now().Format("2006-01-02")
+	_, _ = d.Exec(`
+		INSERT OR IGNORE INTO trading_limits (date, realized_pnl, trade_count, is_halted)
+		VALUES (?, 0.0, 0, 0)`, today)
+	_, err := d.Exec(`
+		UPDATE trading_limits
+		SET realized_pnl  = realized_pnl + ?,
+		    trade_count   = trade_count + 1,
+		    is_halted     = CASE WHEN realized_pnl + ? < ? THEN 1 ELSE is_halted END
+		WHERE date = ?`,
+		addedPnl, addedPnl, -limitUSD, today,
+	)
+	return err
+}
+
+func scanPosition(s scanner) (*Position, error) {
+	p := &Position{}
+	var status string
+	err := s.Scan(
+		&p.ID, &p.Symbol, &p.Direction, &p.Quantity, &p.EntryPrice, &p.EntryTime, &p.Confidence,
+		&p.AlpacaOrderID, &status,
+		&p.ExitPrice, &p.ExitTime, &p.RealizedPnl,
+		&p.StopLossPrice, &p.TakeProfitPrice, &p.CloseReason,
+		&p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+	p.Status = PositionStatus(status)
+	return p, nil
+}
+
 // ─── Embedded Schema ──────────────────────────────────────────────────────────
 
 const schema = `
@@ -240,4 +397,34 @@ CREATE TABLE IF NOT EXISTS order_audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audit_signal
     ON order_audit_log (signal_id, timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS positions (
+    id               TEXT PRIMARY KEY,
+    symbol           TEXT NOT NULL,
+    direction        TEXT NOT NULL CHECK (direction IN ('LONG','SHORT')),
+    quantity         REAL NOT NULL CHECK (quantity > 0),
+    entry_price      REAL NOT NULL,
+    entry_time       INTEGER NOT NULL,
+    confidence       REAL NOT NULL,
+    alpaca_order_id  TEXT,
+    status           TEXT NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN','CLOSED')),
+    exit_price       REAL,
+    exit_time        INTEGER,
+    realized_pnl     REAL,
+    stop_loss_price  REAL,
+    take_profit_price REAL,
+    close_reason     TEXT,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_positions_status
+    ON positions (status, entry_time DESC);
+
+CREATE TABLE IF NOT EXISTS trading_limits (
+    date         TEXT PRIMARY KEY,
+    realized_pnl REAL NOT NULL DEFAULT 0.0,
+    trade_count  INTEGER NOT NULL DEFAULT 0,
+    is_halted    INTEGER NOT NULL DEFAULT 0
+);
 `

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import signal
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
@@ -169,12 +170,37 @@ def main() -> None:
     from agents.orchestrator import Orchestrator
     from data_feed.symbol_universe import get_symbols
     from data_feed.yahoo_feed import YahooFinanceFeed
+    from execution.alpaca_executor import AlpacaExecutor
+
+    # ── Phase 1 gate: verify Alpaca paper account before any trading logic ─────
+    alpaca = AlpacaExecutor()
+    alpaca.verify_account()
+    log.info("alpaca.ready")
 
     symbols = get_symbols()
     log.info("marketflow.brain.starting", symbol_count=len(symbols))
 
-    orchestrator = Orchestrator()
-    yahoo_feed   = YahooFinanceFeed(symbols)
+    from agents.position_monitor import PositionMonitorAgent
+    from db.position_store import PositionStore
+
+    backend_host = os.getenv("BRAIN_HOST", "127.0.0.1")
+    backend_port = os.getenv("GO_SERVER_PORT", "8080")
+    backend_url  = f"http://{backend_host}:{backend_port}"
+
+    position_store = PositionStore(backend_url)
+    orchestrator   = Orchestrator(alpaca=alpaca, position_store=position_store)
+    yahoo_feed     = YahooFinanceFeed(symbols)
+
+    # ── Start position monitor in a background daemon thread ──────────────────
+    monitor = PositionMonitorAgent(
+        router=orchestrator.router,
+        alpaca=alpaca,
+        position_store=position_store,
+        ws_broadcast_url=backend_url,
+    )
+    monitor_thread = threading.Thread(target=monitor.run_forever, daemon=True, name="position-monitor")
+    monitor_thread.start()
+    log.info("position_monitor.thread_started")
 
     log.info("orchestrator.ready")
 

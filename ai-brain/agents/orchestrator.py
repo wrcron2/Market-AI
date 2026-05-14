@@ -32,6 +32,8 @@ from .signal_agent import CandidateSignal, SignalAgent
 
 log = structlog.get_logger(__name__)
 
+_DIRECTION_TO_POSITION_SIDE = {"BUY": "LONG", "SHORT": "SHORT", "SELL": "LONG", "COVER": "SHORT"}
+
 # ─── Graph State ──────────────────────────────────────────────────────────────
 
 class AgentState(TypedDict, total=False):
@@ -40,6 +42,7 @@ class AgentState(TypedDict, total=False):
     debate_result: Any | None       # DebateResult
     risk_result: Any | None         # RiskAssessment
     submitted: bool
+    executed: bool                  # True if Alpaca order was placed
     error: str
 
 
@@ -51,16 +54,19 @@ class Orchestrator:
     into staged orders on the Go backend.
     """
 
-    def __init__(self) -> None:
-        self.router       = LLMRouter()
-        self.signal_agent = SignalAgent(self.router)
-        self.debate_agent = DebateAgent(self.router)
-        self.risk_agent   = RiskAgent(self.router)
+    def __init__(self, alpaca: Any = None, position_store: Any = None) -> None:
+        self.router         = LLMRouter()
+        self.signal_agent   = SignalAgent(self.router)
+        self.debate_agent   = DebateAgent(self.router)
+        self.risk_agent     = RiskAgent(self.router)
+        self._alpaca        = alpaca
+        self._position_store = position_store
+        self._auto_execute  = os.getenv("AUTO_EXECUTE", "false").lower() == "true"
 
-        # REST endpoint on the Go backend
         backend_host = os.getenv("BRAIN_HOST", "127.0.0.1")
         backend_port = os.getenv("GO_SERVER_PORT", "8080")
-        self._signals_url = f"http://{backend_host}:{backend_port}/api/signals"
+        self._backend_base = f"http://{backend_host}:{backend_port}"
+        self._signals_url  = f"{self._backend_base}/api/signals"
 
         self._graph = self._build_graph()
 
@@ -69,19 +75,19 @@ class Orchestrator:
     def run(self, market_snapshot: dict[str, Any]) -> AgentState:
         """
         Process a market data snapshot through the full agent pipeline.
-
-        Args:
-            market_snapshot: Dict with keys 'symbol', 'ohlcv', 'indicators', etc.
-
-        Returns:
-            The final AgentState after all nodes have run.
+        If AUTO_EXECUTE is true (checked live per run), executes on Alpaca
+        after a successful submission to the Go backend.
         """
+        # Re-read AUTO_EXECUTE each run so the dashboard toggle takes effect
+        # without restarting the process.
+        self._auto_execute = os.getenv("AUTO_EXECUTE", "false").lower() == "true"
         initial: AgentState = {
             "market_snapshot": market_snapshot,
             "signal": None,
             "debate_result": None,
             "risk_result": None,
             "submitted": False,
+            "executed": False,
         }
         return self._graph.invoke(initial)
 
@@ -155,6 +161,79 @@ class Orchestrator:
             log.error("orchestrator.http_error", error=str(exc))
             return {**state, "error": str(exc), "submitted": False}
 
+    def _node_execute(self, state: AgentState) -> AgentState:
+        """
+        Node 5: Place the order on Alpaca when AUTO_EXECUTE is enabled.
+        Skipped entirely when AUTO_EXECUTE=false (manual Green Light flow).
+        Checks today's daily loss limit before executing.
+        """
+        if not self._auto_execute or self._alpaca is None:
+            return state
+
+        signal = state["signal"]
+        debate = state["debate_result"]
+        risk   = state["risk_result"]
+
+        if not all([signal, debate, risk]) or not state.get("submitted"):
+            return state
+
+        # Check daily loss limit before placing
+        if self._position_store:
+            limits = self._position_store.get_today_limits()
+            if limits.get("is_halted"):
+                log.info("orchestrator.daily_limit_halted", symbol=signal.symbol)
+                return {**state, "error": "daily loss limit reached — order skipped"}
+
+        try:
+            direction = debate.consensus_direction
+            order = self._alpaca.place_order(
+                symbol=signal.symbol,
+                direction=direction,
+                quantity=risk.adjusted_quantity,
+                limit_price=signal.limit_price,
+                signal_id=signal.signal_id,
+            )
+            alpaca_order_id = order.get("id", "")
+            fill_price      = float(order.get("filled_avg_price") or signal.limit_price or 0)
+
+            # Notify Go backend: PENDING → APPROVED → EXECUTED
+            resp = httpx.post(
+                f"{self._backend_base}/api/orders/auto-execute",
+                json={
+                    "signal_id":       signal.signal_id,
+                    "alpaca_order_id": alpaca_order_id,
+                    "fill_price":      fill_price,
+                },
+                timeout=10,
+            )
+            resp.raise_for_status()
+
+            # Record open position in DB
+            if self._position_store and direction in ("BUY", "SHORT"):
+                entry = fill_price if fill_price > 0 else (signal.limit_price or 0)
+                pos_side = _DIRECTION_TO_POSITION_SIDE.get(direction, "LONG")
+                self._position_store.open_position(
+                    signal_id=signal.signal_id,
+                    symbol=signal.symbol,
+                    direction=pos_side,
+                    quantity=risk.adjusted_quantity,
+                    entry_price=entry,
+                    confidence=risk.final_confidence,
+                    alpaca_order_id=alpaca_order_id,
+                )
+
+            log.info("orchestrator.auto_executed",
+                     signal_id=signal.signal_id,
+                     symbol=signal.symbol,
+                     direction=direction,
+                     alpaca_order_id=alpaca_order_id)
+            return {**state, "executed": True}
+
+        except Exception as exc:
+            log.error("orchestrator.execute_error",
+                      signal_id=signal.signal_id, error=str(exc))
+            return {**state, "error": str(exc), "executed": False}
+
     # ── Routing conditions ─────────────────────────────────────────────────────
 
     def _route_after_generate(self, state: AgentState) -> str:
@@ -179,6 +258,7 @@ class Orchestrator:
         g.add_node("debate",   self._node_debate)
         g.add_node("risk",     self._node_risk)
         g.add_node("submit",   self._node_submit)
+        g.add_node("execute",  self._node_execute)
 
         g.set_entry_point("generate")
 
@@ -191,6 +271,7 @@ class Orchestrator:
             "submit": "submit",
             END: END,
         })
-        g.add_edge("submit", END)
+        g.add_edge("submit",  "execute")
+        g.add_edge("execute", END)
 
         return g.compile()
