@@ -82,6 +82,21 @@ class PositionStore:
             log.error("position_store.list_failed", error=str(exc))
             return []
 
+    def get_pending_symbols(self) -> set[str]:
+        """Return symbols that already have a signal awaiting Green Light (PENDING status)."""
+        try:
+            resp = self._client.get("/api/orders/pending")
+            resp.raise_for_status()
+            orders = resp.json() if isinstance(resp.json(), list) else []
+            return {o["symbol"] for o in orders if o.get("status") == "PENDING"}
+        except Exception as exc:
+            log.error("position_store.pending_symbols_failed", error=str(exc))
+            return set()
+
+    def get_open_symbols(self) -> set[str]:
+        """Return symbols that already have an open position in the DB."""
+        return {p["symbol"] for p in self.list_open_positions()}
+
     def sync_fill_price(self, signal_id: str, fill_price: float) -> bool:
         """Update entry_price once an Alpaca order fills (was 0 for pending orders)."""
         try:

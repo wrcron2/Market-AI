@@ -251,6 +251,19 @@ def main() -> None:
         snapshots = [s for s in snapshots if _is_interesting(s)]
         log.info("brain.prefilter", before=before, after=len(snapshots), dropped=before - len(snapshots))
 
+        # ── Deduplication: skip symbols with a pending signal or open position ──
+        pending_symbols = position_store.get_pending_symbols()
+        open_symbols    = position_store.get_open_symbols()
+        blocked_symbols = pending_symbols | open_symbols
+        if blocked_symbols:
+            before_dedup = len(snapshots)
+            snapshots = [s for s in snapshots if s["symbol"] not in blocked_symbols]
+            log.info(
+                "brain.dedup_filter",
+                blocked=sorted(blocked_symbols),
+                dropped=before_dedup - len(snapshots),
+            )
+
         # ── Run pipeline in parallel across interesting symbols ────────────────
         with ThreadPoolExecutor(max_workers=PIPELINE_WORKERS) as pool:
             futures = {

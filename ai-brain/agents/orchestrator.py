@@ -200,6 +200,14 @@ class Orchestrator:
                 log.info("orchestrator.daily_limit_halted", symbol=signal.symbol)
                 return {**state, "error": "daily loss limit reached — order skipped"}
 
+        # Guard: skip if Alpaca already holds an open position for this symbol
+        existing = self._alpaca.get_position(signal.symbol)
+        if existing:
+            log.info("orchestrator.duplicate_position_skipped",
+                     symbol=signal.symbol,
+                     existing_qty=existing.get("qty"))
+            return state
+
         try:
             direction = debate.consensus_direction
             order = self._alpaca.place_order(
