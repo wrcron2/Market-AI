@@ -98,7 +98,11 @@ class Orchestrator:
         """Node 2: Run bull-bear debate on the candidate signal."""
         if not state.get("signal"):
             return state
-        debate = self.debate_agent.debate(state["signal"], state["market_snapshot"])
+        try:
+            debate = self.debate_agent.debate(state["signal"], state["market_snapshot"])
+        except RuntimeError as exc:
+            log.warning("orchestrator.debate_failed", symbol=state["signal"].symbol, error=str(exc))
+            return {**state, "debate_result": None}
         return {**state, "debate_result": debate}
 
     def _node_risk(self, state: AgentState) -> AgentState:
@@ -164,6 +168,16 @@ class Orchestrator:
         Checks today's daily loss limit before executing.
         """
         if self._alpaca is None or not self._is_auto_execute_enabled():
+            return state
+
+        # Enforce a higher confidence bar for autonomous execution
+        risk = state.get("risk_result")
+        auto_min_conf = float(os.getenv("AUTO_EXECUTE_MIN_CONFIDENCE", "0.85"))
+        if risk and risk.final_confidence < auto_min_conf:
+            log.info("orchestrator.auto_execute_confidence_too_low",
+                     symbol=state["signal"].symbol,
+                     confidence=risk.final_confidence,
+                     required=auto_min_conf)
             return state
 
         # Never place orders when the market is closed

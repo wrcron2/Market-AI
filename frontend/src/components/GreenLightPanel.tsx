@@ -17,7 +17,7 @@ export function GreenLightPanel({ orders, onApprove, onReject }: Props) {
   // ── Filter state ───────────────────────────────────────────────────────────
   const [search,     setSearch]     = useState('')
   const [direction,  setDirection]  = useState<Direction | 'ALL'>('ALL')
-  const [confidence, setConfidence] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL')
+  const [confidence, setConfidence] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'GTE_80'>('ALL')
   const [dateFrom,   setDateFrom]   = useState('')
   const [dateTo,     setDateTo]     = useState('')
   const [page,       setPage]       = useState(1)
@@ -38,9 +38,10 @@ export function GreenLightPanel({ orders, onApprove, onReject }: Props) {
     return orders.filter((o) => {
       if (search && !o.symbol.toLowerCase().includes(search.toLowerCase())) return false
       if (direction !== 'ALL' && o.direction !== direction) return false
-      if (confidence === 'HIGH'   && o.confidence < 0.90) return false
-      if (confidence === 'MEDIUM' && (o.confidence < 0.75 || o.confidence >= 0.90)) return false
-      if (confidence === 'LOW'    && o.confidence >= 0.75) return false
+      if (confidence === 'HIGH'             && o.confidence < 0.90) return false
+      if (confidence === 'MEDIUM'           && (o.confidence < 0.75 || o.confidence >= 0.90)) return false
+      if (confidence === 'LOW'              && o.confidence >= 0.75) return false
+      if (confidence === 'GTE_80' && o.confidence < 0.80) return false
       if (dateFrom) {
         const from = new Date(dateFrom).getTime()
         if (o.created_at < from) return false
@@ -52,6 +53,8 @@ export function GreenLightPanel({ orders, onApprove, onReject }: Props) {
       return true
     })
   }, [orders, search, direction, confidence, dateFrom, dateTo])
+
+  const gte80Count = useMemo(() => orders.filter((o) => o.confidence >= 0.80).length, [orders])
 
   const totalPages  = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -112,6 +115,7 @@ export function GreenLightPanel({ orders, onApprove, onReject }: Props) {
         <div className="filter-select-wrap">
           <select value={confidence} onChange={(e) => { setConfidence(e.target.value as typeof confidence); setPage(1) }}>
             <option value="ALL">All confidence</option>
+            <option value="GTE_80">≥ 80% · {gte80Count}</option>
             <option value="HIGH">High ≥ 90%</option>
             <option value="MEDIUM">Medium 75–90%</option>
             <option value="LOW">Low &lt; 75%</option>

@@ -56,35 +56,110 @@ class SignalAgent:
     into the prompt. For the scaffold, we use a static market snapshot.
     """
 
-    SYSTEM_PROMPT = """You are a quantitative trading signal generator. Output ONLY raw JSON.
+    SYSTEM_PROMPT = """You are a quantitative trading signal generator. Output ONLY raw JSON — no markdown, no explanation.
 
-Indicator interpretation rules:
-- RSI < 30 = oversold → BUY bias | RSI > 70 = overbought → SELL/SHORT bias | 40-60 = neutral, no edge
-- MACD > macd_signal = bullish momentum | MACD < macd_signal = bearish momentum
-- Bollinger %B = (close - bb_lower) / (bb_upper - bb_lower): <0.2 = oversold, >0.8 = overbought
-- ATR% = atr_14/close*100: >5% = high volatility (reduce size), >8% = extreme (do not trade)
-- volume > 1.5x volume_sma20 = high conviction | volume < 0.7x = low conviction, skip
+== STRATEGY SELECTION ==
+Choose ONE strategy per signal. Never mix signals from both.
 
-Signal confidence calibration (initial_confidence):
-- 1 indicator aligned: 0.65-0.72 (too weak, will be blocked)
-- 2 indicators agree: 0.72-0.80
-- 3 indicators agree: 0.80-0.88
-- 4+ indicators + volume confirms: 0.88-0.95
-- All indicators + macro tailwind: 0.95-0.98
-- Never output 1.0 — no signal is certain
+momentum_breakout: Trade in the direction of an accelerating trend with volume confirmation.
+  Requires: MACD histogram EXPANDING (momentum accelerating), volume > 1.5x SMA20, price on correct side of SMA20.
 
-Quantity sizing (portfolio = $100,000, max 10% per trade = $10,000):
-- quantity = min(int(10000 / close_price), 500)
-- Reduce by 50% if ATR% > 4% or VIX > 25
+mean_reversion: Fade an overextended move back toward fair value.
+  Requires: RSI < 25 or RSI > 75, Bollinger %B < 0.10 or > 0.90, volume CONTRACTING (not expanding).
+  Never use mean_reversion when MACD histogram is strongly directional (|histogram| > 1.0).
 
-Market regime rules:
-- VIX > 30: block new BUY signals (only SELL/SHORT/COVER)
-- VIX > 25: require RSI < 28 or RSI > 72 for a signal
-- spy_trend=downtrend: prefer SELL/SHORT | spy_trend=uptrend: prefer BUY
-- If RSI is 40-60 AND MACD is near zero AND price is near SMA20: output null (no signal)
+== INDICATOR INTERPRETATION ==
+IMPORTANT: RSI and MACD are both price-derived — they are correlated. Their agreement counts as ~1.3x evidence, not 2x.
+Volume and price action are more independent — their agreement with technicals counts as ~1.8x evidence.
+
+RSI (14-period) — DIRECTION MATTERS more than the level:
+  Rising RSI (e.g. 27→33): momentum reversing upward — BUY signal
+  Falling RSI (e.g. 33→27): momentum deteriorating — SELL/SHORT signal
+  < 25: strongly oversold (mean_reversion BUY candidate)
+  25–35: oversold, momentum entry if trend supports
+  35–65: neutral — no edge, skip unless strong volume breakout
+  65–75: overbought, momentum entry if trend supports
+  > 75: strongly overbought (mean_reversion SELL candidate)
+
+MACD (12/26/9):
+  Histogram expanding positively: bullish momentum accelerating → momentum_breakout BUY
+  Histogram expanding negatively: bearish momentum accelerating → momentum_breakout SHORT
+  Histogram contracting: momentum fading → do NOT initiate momentum trades
+  Zero-line crossover: strongest signal (trend change confirmation)
+  Divergence from price: early reversal warning
+
+Bollinger Bands (%B = (close - bb_lower) / (bb_upper - bb_lower)):
+  %B < 0.05 + volume contracting: mean_reversion BUY
+  %B > 0.95 + volume contracting: mean_reversion SELL
+  %B 0.05–0.20 + volume expanding: momentum_breakout BUY from low base
+  %B 0.80–0.95 + volume expanding: momentum_breakout SHORT from high base
+  Narrow band width (squeeze): breakout imminent, wait for volume confirmation
+
+ATR% (= atr_14 / close * 100):
+  < 1.5%: low vol — mean_reversion preferred, full size
+  1.5–3.0%: normal — all strategies, full size
+  3.0–5.0%: elevated — reduce size 40%
+  5.0–8.0%: high — reduce size 60%, momentum only with strong conviction
+  > 8.0%: extreme — output null, no new entries
+
+Volume (most independent indicator — highest weight):
+  > 2.0x SMA20: very high conviction, institutional participation confirmed
+  1.5–2.0x SMA20: high conviction, full position
+  1.0–1.5x SMA20: moderate, reduce size 20%
+  0.7–1.0x SMA20: weak — no breakout trades
+  < 0.7x SMA20: no conviction — output null
+
+== MARKET REGIME ==
+VIX:
+  < 15: risk-on — favour momentum BUY, full size
+  15–20: normal — all strategies valid
+  20–25: elevated — require 2+ independent confirmations, reduce size 20%
+  25–30: risk-off — mean_reversion only, no new momentum BUYs, reduce size 40%
+  > 30: fear spike — mean_reversion BUYs ARE VALID (contrarian, capitulation signal), NO momentum BUYs,
+        NO new SHORTs (short squeeze risk), 50% size max
+  NOTE: VIX > 30 is historically a mean-reversion BUY opportunity, NOT a blanket sell signal.
+
+SPY trend:
+  uptrend: favour BUY, SHORT only on extreme RSI/BB readings
+  neutral: all strategies valid, require stronger confirmation
+  downtrend: favour SELL/SHORT, BUY only on extreme mean_reversion with VIX > 28 (capitulation)
+
+== POSITION SIZING (portfolio = $100,000) ==
+Base allocation: $8,000 (8% per trade — leaves room for scale-in)
+Base shares = min(int(8000 / close), 500)
+
+ATR% multiplier: <1.5%→1.25x | 1.5–3%→1.0x | 3–5%→0.6x | 5–8%→0.4x
+VIX multiplier:  <15→1.1x | 15–20→1.0x | 20–25→0.8x | 25–30→0.6x | >30→0.5x
+Final quantity = int(base_shares × ATR_mult × VIX_mult), minimum 1
+
+== CONFIDENCE CALIBRATION ==
+Start at 0.60. Add evidence — but respect correlation between RSI and MACD.
+
+Independent evidence (full weight each):
+  Volume > 1.5x SMA20 aligned with direction: +0.08
+  SPY trend aligned with direction: +0.06
+  VIX regime supports strategy type: +0.04
+  ATR% appropriate for strategy (not extreme): +0.03
+
+Correlated technical evidence (RSI + MACD together = +0.08 max, not additive):
+  RSI direction AND MACD histogram both aligned: +0.08
+  Bollinger %B extreme supporting signal (partially independent): +0.05
+
+Cap at 0.90 — no model has > 90% edge on a 5-day directional call.
+Output null if total confidence < 0.70 — below this, expected value is negative after costs.
+
+== NO-TRADE CONDITIONS (output null immediately if any apply) ==
+- ATR% > 8.0%
+- Volume < 0.7x SMA20
+- RSI 38–62 AND |MACD histogram| < 0.3 AND %B 0.30–0.70 (flat, no edge)
+- Confidence < 0.70 after calibration
+- momentum_breakout attempted when MACD histogram is contracting
+- mean_reversion attempted when MACD histogram |value| > 1.0 (strong trend)
+- Any BUY when SPY=downtrend AND VIX < 28 (no catching falling knives in bear market)
+- momentum BUY when VIX > 25
 
 Output ONLY raw JSON starting with { — no markdown, no explanation:
-{"symbol":"AAPL","direction":"BUY","quantity":66,"limit_price":0,"reasoning":"RSI 28 oversold + MACD bullish crossover + volume 1.8x average in risk-on environment.","strategy_name":"momentum_breakout","initial_confidence":0.88}"""
+{"symbol":"NVDA","direction":"BUY","quantity":42,"limit_price":0,"reasoning":"RSI recovering 26→31 (upward, confirming reversal); %B at 0.06 (BB lower extreme); volume contracting to 0.85x avg (mean-reversion setup, not breakout); MACD histogram near zero, not directional. VIX 17 (normal), SPY uptrend. Three partially-independent signals align for mean_reversion BUY. RSI+MACD correlated so counted as single block (+0.08); volume contraction confirms overextension (+0.05); SPY tailwind (+0.06); VIX normal (+0.04) = 0.83 confidence.","strategy_name":"mean_reversion","initial_confidence":0.83}"""
 
     def __init__(self, router: LLMRouter, strategy_name: str = "momentum_breakout") -> None:
         self.router = router
@@ -117,7 +192,7 @@ Output ONLY raw JSON starting with { — no markdown, no explanation:
                 system=self.SYSTEM_PROMPT,
                 user=user_prompt,
                 complexity=Complexity.LOW,
-                max_tokens=256,
+                max_tokens=700,
                 schema=CandidateSignal,
             )
             # Extract first JSON object if model added surrounding text

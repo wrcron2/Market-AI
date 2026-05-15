@@ -33,45 +33,58 @@ class RiskAssessment(BaseModel):
     adjusted_quantity: float  # Quantity after position-sizing rules
 
 
-RISK_SYSTEM = """You are a quantitative risk manager for an AI trading system.
-Evaluate the proposed trade for risk using the market data provided.
+RISK_SYSTEM = """You are a quantitative risk manager performing the FINAL hard-limits check before a trade is submitted.
 
-Hard blocking rules (set is_blocked=true immediately):
-- VIX > 40 and direction is BUY → block, market in extreme fear
-- ATR% > 8% and confidence < 0.93 → block, too volatile for conviction level
-- volume_ratio < 0.3 → block, illiquid (volume below 30% of average)
-- risk_score >= 0.80 → block regardless of confidence
+CRITICAL: VIX, ATR%, SPY trend, and volume have ALREADY been factored into the signal confidence and quantity by upstream agents. Do NOT re-penalize for those conditions. Your job is to catch only what the upstream agents could NOT see: execution risk, absolute liquidity limits, and hard system caps.
 
-Position sizing rules (quantity_multiplier 0.10–1.0):
-- VIX < 15 → 1.0 | VIX 15-20 → 0.90 | VIX 20-25 → 0.75
-- VIX 25-30 → 0.50 | VIX 30-40 → 0.25 | VIX > 40 → 0.0 for BUY
-- ATR% < 2% → 1.0 | ATR% 2-3% → 0.90 | ATR% 3-5% → 0.75
-- ATR% 5-8% → 0.50 | ATR% > 8% → 0.25
-- Apply both multipliers: final = vix_mult × atr_mult
+== YOUR ROLE ==
+You are NOT re-scoring market conditions. You are answering three questions:
+1. Does this trade violate any absolute hard limit? (block it if yes)
+2. Is there execution or structural risk the upstream agents missed? (adjust confidence slightly if yes)
+3. Does the position size need a hard cap for system safety? (cap quantity if yes)
 
-Confidence adjustment rules (confidence_adjustment: -0.20 to +0.05):
-- VIX > 30 → -0.10 | VIX > 25 → -0.05
-- ATR% > 5% → -0.05 | ATR% > 8% → -0.10
-- volume_ratio < 0.5 → -0.05
-- BUY in downtrend OR SHORT in uptrend → -0.05
-- Market order (limit_price=0) with ATR% > 4% → -0.03
-- All indicators aligned + high volume + macro tailwind → +0.03 to +0.05
+== HARD BLOCKING RULES (is_blocked=true, these override everything) ==
+- volume_ratio < 0.30: cannot fill — order would move the market (true illiquidity)
+- ATR% > 8.0%: structurally too volatile, gap risk exceeds position tolerance
+- VIX > 40 AND direction is BUY: crisis regime, no new long exposure
+- Debate confidence (post-debate) < 0.60: signal quality too low to proceed regardless of risk metrics
 
-Risk score guide:
-- 0.0-0.25: low risk | 0.25-0.50: moderate | 0.50-0.70: elevated
-- 0.70-0.80: high risk | 0.80-1.0: extreme (block)
+== CONFIDENCE ADJUSTMENT (-0.08 to +0.04 only) ==
+Only adjust for factors NOT already seen by upstream agents:
+- Market order (limit_price=0) AND ATR% > 5%: -0.03 (execution slippage risk on volatile stock)
+- volume_ratio 0.30–0.60 (low but not blocked): -0.03 (partial fill risk)
+- Counter-trend trade (BUY in downtrend OR SHORT in uptrend): -0.03 (directional risk not fully captured)
+- All risk checks pass cleanly AND volume_ratio > 1.5: +0.02 to +0.04 (execution quality premium)
+- Do NOT penalize for VIX level — already factored upstream
+- Do NOT penalize for ATR% < 8% — already factored upstream
+- Maximum total adjustment: -0.08 downward, +0.04 upward
 
-Write block_reason in plain language a non-technical trader can understand.
-Never output risk_score < 0.05 — there is always some risk.
+== POSITION SIZING (quantity_multiplier 0.50–1.0) ==
+Signal agent already applied ATR% and VIX multipliers to quantity. Do NOT re-apply them.
+Only reduce quantity for hard system limits:
+- volume_ratio < 0.60: cap at 0.70 (partial fill protection)
+- ATR% > 6%: cap at 0.60 (gap risk on large positions)
+- All other cases: 1.0 (pass through as-is)
+
+== RISK SCORE (0.05–1.0) ==
+Score the execution and structural risk only (not market direction risk):
+- 0.05–0.25: clean setup, no execution concerns
+- 0.25–0.50: minor concerns (slightly low volume, moderate ATR)
+- 0.50–0.70: elevated (market order in volatile stock, low volume)
+- 0.70–0.80: high (multiple execution concerns)
+- 0.80–1.0: extreme → set is_blocked=true
+
+Write block_reason and risk_notes in plain language a trader can act on.
+Never output risk_score < 0.05.
 
 Respond with ONLY a valid JSON object:
 {
   "is_blocked": boolean,
-  "block_reason": "string (empty if not blocked)",
-  "risk_score": number (0.0-1.0),
-  "risk_notes": "string (2-3 sentences summarizing key risks)",
-  "confidence_adjustment": number (-0.20 to 0.05),
-  "quantity_multiplier": number (0.10 to 1.0)
+  "block_reason": "string (empty if not blocked, plain English if blocked)",
+  "risk_score": number (0.05-1.0),
+  "risk_notes": "string (1-2 sentences on execution and structural risk only)",
+  "confidence_adjustment": number (-0.08 to +0.04),
+  "quantity_multiplier": number (0.50 to 1.0)
 }"""
 
 
@@ -108,23 +121,24 @@ class RiskAgent:
         vix          = ctx.get("vix", 18)
         spy_trend    = ctx.get("spy_trend", "sideways")
 
+        order_type = 'market order' if signal.limit_price == 0 else f'${signal.limit_price:.2f} limit'
         user_prompt = (
             f"Trade proposal:\n"
             f"  Symbol:              {signal.symbol}\n"
             f"  Direction:           {debate.consensus_direction}\n"
-            f"  Quantity:            {signal.quantity} shares\n"
-            f"  Price:               {'market order' if signal.limit_price == 0 else f'${signal.limit_price:.2f} limit'}\n"
             f"  Strategy:            {signal.strategy_name}\n"
-            f"  Confidence (debate): {debate.adjusted_confidence:.0%}\n\n"
-            f"Market Risk Context:\n"
-            f"  VIX:                 {vix} "
-            f"({'extreme fear' if vix > 40 else 'high fear' if vix > 30 else 'risk-off' if vix > 25 else 'elevated' if vix > 20 else 'normal'})\n"
-            f"  SPY Trend:           {spy_trend}\n"
-            f"  ATR(14):             ${atr} ({atr_pct}% of price)\n"
-            f"  Volume ratio:        {volume_ratio}x average\n"
+            f"  Quantity:            {signal.quantity} shares @ {order_type}\n"
+            f"  Confidence (post-debate): {debate.adjusted_confidence:.0%}\n\n"
+            f"Execution Risk Inputs (focus your assessment here):\n"
+            f"  Order type:          {order_type} — {'slippage risk if ATR% is high' if signal.limit_price == 0 else 'price risk controlled'}\n"
+            f"  Volume ratio:        {volume_ratio}x average — {'adequate liquidity' if volume_ratio >= 0.6 else 'LOW LIQUIDITY — partial fill risk'}\n"
+            f"  ATR(14):             {atr_pct}% of price — {'EXTREME volatility' if atr_pct > 8 else 'high volatility' if atr_pct > 5 else 'normal'}\n"
+            f"  SPY Trend:           {spy_trend} — {'counter-trend trade' if (debate.consensus_direction == 'BUY' and spy_trend == 'downtrend') or (debate.consensus_direction in ('SELL','SHORT') and spy_trend == 'uptrend') else 'trend-aligned'}\n\n"
+            f"Macro Context (already priced into confidence — do not re-penalize):\n"
+            f"  VIX:                 {vix} ({'extreme' if vix > 40 else 'crisis' if vix > 30 else 'elevated' if vix > 20 else 'normal'})\n"
             f"  Close price:         ${close}\n\n"
-            f"Bull/Bear synthesis:\n{debate.judge_reasoning}\n\n"
-            "Apply the risk rules and output your JSON assessment."
+            f"Judge reasoning (upstream summary):\n{debate.judge_reasoning}\n\n"
+            f"Apply ONLY the hard-limits check and execution risk assessment. Output JSON."
         )
 
         try:
@@ -140,7 +154,7 @@ class RiskAgent:
                 system=RISK_SYSTEM,
                 user=user_prompt,
                 complexity=Complexity.LOW,
-                max_tokens=256,
+                max_tokens=300,
                 schema=_RiskOutput,
             )
 
