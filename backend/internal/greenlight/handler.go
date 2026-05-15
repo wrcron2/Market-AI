@@ -96,6 +96,19 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		zap.String("symbol", order.Symbol),
 	)
 
+	// Record signal outcome for postmortem tracking (entry_price synced later by brain).
+	go func() {
+		if err := h.db.CreateSignalOutcome(db.SignalOutcome{
+			SignalID:           order.ID,
+			Symbol:             order.Symbol,
+			PredictedDirection: order.Direction,
+			StrategyName:       order.StrategyName,
+			Confidence:         order.Confidence,
+		}); err != nil {
+			h.log.Warn("signal outcome record failed", zap.String("signal_id", order.ID), zap.Error(err))
+		}
+	}()
+
 	// Submit to IBKR asynchronously — the dashboard tracks the result via WebSocket.
 	go h.submitToIBKR(order)
 

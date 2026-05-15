@@ -180,6 +180,7 @@ def main() -> None:
     symbols = get_symbols()
     log.info("marketflow.brain.starting", symbol_count=len(symbols))
 
+    from agents.outcome_checker import OutcomeChecker
     from agents.position_monitor import PositionMonitorAgent
     from db.position_store import PositionStore
 
@@ -201,6 +202,12 @@ def main() -> None:
     monitor_thread = threading.Thread(target=monitor.run_forever, daemon=True, name="position-monitor")
     monitor_thread.start()
     log.info("position_monitor.thread_started")
+
+    # ── Start outcome checker — checks signal accuracy at 5d and 20d horizons ──
+    outcome_checker = OutcomeChecker(backend_url)
+    outcome_thread = threading.Thread(target=outcome_checker.run_forever, daemon=True, name="outcome-checker")
+    outcome_thread.start()
+    log.info("outcome_checker.thread_started")
 
     log.info("orchestrator.ready")
 

@@ -24,7 +24,9 @@
       "Bash(git commit -m ' *)",
       "Bash(docker-compose logs *)",
       "Bash(curl -s -X POST http://localhost:3000/api/auto-execute -H 'Content-Type: application/json' -d '{\"enabled\": true}')",
-      "mcp__claude_ai_Notion__notion-update-page"
+      "mcp__claude_ai_Notion__notion-update-page",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

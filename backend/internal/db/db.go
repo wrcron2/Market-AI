@@ -16,6 +16,8 @@ type DB struct {
 	*sql.DB
 }
 
+func nowMs() int64 { return time.Now().UnixMilli() }
+
 // Open initialises the database connection and returns a *DB.
 func Open(dsn string) (*DB, error) {
 	sqlDB, err := sql.Open("sqlite3", dsn+"?_journal_mode=WAL&_foreign_keys=on")
@@ -223,6 +225,124 @@ func (d *DB) GetStats() (*OrderStats, error) {
 		FROM staged_orders`)
 	var s OrderStats
 	return &s, row.Scan(&s.TotalSignals, &s.Approved, &s.Rejected, &s.Executed, &s.AvgConfidence)
+}
+
+// ─── Signal Outcomes ──────────────────────────────────────────────────────────
+
+type SignalOutcome struct {
+	SignalID           string   `json:"signal_id"`
+	Symbol             string   `json:"symbol"`
+	PredictedDirection string   `json:"predicted_direction"`
+	StrategyName       string   `json:"strategy_name"`
+	Confidence         float64  `json:"confidence"`
+	VIXAtSignal        float64  `json:"vix_at_signal"`
+	EntryPrice         float64  `json:"entry_price"`
+	Check5dAt          int64    `json:"check_5d_at"`
+	Check20dAt         int64    `json:"check_20d_at"`
+	Price5d            *float64 `json:"price_5d"`
+	Return5d           *float64 `json:"return_5d"`
+	Outcome5d          *string  `json:"outcome_5d"`
+	Price20d           *float64 `json:"price_20d"`
+	Return20d          *float64 `json:"return_20d"`
+	Outcome20d         *string  `json:"outcome_20d"`
+	CreatedAt          int64    `json:"created_at"`
+}
+
+func (d *DB) CreateSignalOutcome(o SignalOutcome) error {
+	now := nowMs()
+	fiveDays := int64(5 * 24 * 60 * 60 * 1000)
+	twentyDays := int64(20 * 24 * 60 * 60 * 1000)
+	_, err := d.Exec(`
+		INSERT OR IGNORE INTO signal_outcomes
+			(signal_id, symbol, predicted_direction, strategy_name, confidence,
+			 vix_at_signal, entry_price, check_5d_at, check_20d_at, created_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		o.SignalID, o.Symbol, o.PredictedDirection, o.StrategyName, o.Confidence,
+		o.VIXAtSignal, o.EntryPrice, now+fiveDays, now+twentyDays, now,
+	)
+	return err
+}
+
+func (d *DB) UpdateOutcome5d(signalID string, price, ret float64, outcome string) error {
+	_, err := d.Exec(`
+		UPDATE signal_outcomes
+		SET price_5d=?, return_5d=?, outcome_5d=?, checked_5d_at=?
+		WHERE signal_id=?`,
+		price, ret, outcome, nowMs(), signalID,
+	)
+	return err
+}
+
+func (d *DB) UpdateOutcome20d(signalID string, price, ret float64, outcome string) error {
+	_, err := d.Exec(`
+		UPDATE signal_outcomes
+		SET price_20d=?, return_20d=?, outcome_20d=?, checked_20d_at=?
+		WHERE signal_id=?`,
+		price, ret, outcome, nowMs(), signalID,
+	)
+	return err
+}
+
+type OutcomeStats struct {
+	Total5d        int     `json:"total_5d"`
+	TruePositive5d int     `json:"true_positive_5d"`
+	FalsePositive5d int    `json:"false_positive_5d"`
+	Accuracy5d     float64 `json:"accuracy_5d"`
+	AvgReturn5d    float64 `json:"avg_return_5d"`
+	Total20d       int     `json:"total_20d"`
+	TruePositive20d int    `json:"true_positive_20d"`
+	Accuracy20d    float64 `json:"accuracy_20d"`
+	AvgReturn20d   float64 `json:"avg_return_20d"`
+}
+
+func (d *DB) GetOutcomeStats() (*OutcomeStats, error) {
+	s := &OutcomeStats{}
+	row := d.QueryRow(`
+		SELECT
+			COUNT(outcome_5d),
+			SUM(CASE WHEN outcome_5d='TRUE_POSITIVE' THEN 1 ELSE 0 END),
+			SUM(CASE WHEN outcome_5d='FALSE_POSITIVE' THEN 1 ELSE 0 END),
+			COALESCE(AVG(return_5d), 0),
+			COUNT(outcome_20d),
+			SUM(CASE WHEN outcome_20d='TRUE_POSITIVE' THEN 1 ELSE 0 END),
+			COALESCE(AVG(return_20d), 0)
+		FROM signal_outcomes WHERE outcome_5d IS NOT NULL OR outcome_20d IS NOT NULL`)
+	err := row.Scan(
+		&s.Total5d, &s.TruePositive5d, &s.FalsePositive5d, &s.AvgReturn5d,
+		&s.Total20d, &s.TruePositive20d, &s.AvgReturn20d,
+	)
+	if s.Total5d > 0 {
+		s.Accuracy5d = float64(s.TruePositive5d) / float64(s.Total5d) * 100
+	}
+	if s.Total20d > 0 {
+		s.Accuracy20d = float64(s.TruePositive20d) / float64(s.Total20d) * 100
+	}
+	return s, err
+}
+
+func (d *DB) GetPendingOutcomeChecks(nowMs int64) ([]SignalOutcome, error) {
+	rows, err := d.Query(`
+		SELECT signal_id, symbol, predicted_direction, strategy_name,
+		       confidence, vix_at_signal, entry_price, check_5d_at, check_20d_at
+		FROM signal_outcomes
+		WHERE (outcome_5d IS NULL AND check_5d_at <= ?)
+		   OR (outcome_20d IS NULL AND check_20d_at <= ?)`,
+		nowMs, nowMs,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SignalOutcome
+	for rows.Next() {
+		var o SignalOutcome
+		if err := rows.Scan(&o.SignalID, &o.Symbol, &o.PredictedDirection, &o.StrategyName,
+			&o.Confidence, &o.VIXAtSignal, &o.EntryPrice, &o.Check5dAt, &o.Check20dAt); err != nil {
+			continue
+		}
+		out = append(out, o)
+	}
+	return out, nil
 }
 
 // ─── Positions ────────────────────────────────────────────────────────────────
@@ -460,4 +580,28 @@ CREATE TABLE IF NOT EXISTS trading_limits (
     trade_count  INTEGER NOT NULL DEFAULT 0,
     is_halted    INTEGER NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS signal_outcomes (
+    signal_id          TEXT PRIMARY KEY REFERENCES staged_orders(id),
+    symbol             TEXT NOT NULL,
+    predicted_direction TEXT NOT NULL,
+    strategy_name      TEXT NOT NULL DEFAULT '',
+    confidence         REAL NOT NULL,
+    vix_at_signal      REAL NOT NULL DEFAULT 0,
+    entry_price        REAL NOT NULL DEFAULT 0,
+    check_5d_at        INTEGER NOT NULL,
+    check_20d_at       INTEGER NOT NULL,
+    price_5d           REAL,
+    return_5d          REAL,
+    outcome_5d         TEXT CHECK (outcome_5d IN ('TRUE_POSITIVE','FALSE_POSITIVE','REGIME_MISMATCH')),
+    price_20d          REAL,
+    return_20d         REAL,
+    outcome_20d        TEXT CHECK (outcome_20d IN ('TRUE_POSITIVE','FALSE_POSITIVE','REGIME_MISMATCH')),
+    checked_5d_at      INTEGER,
+    checked_20d_at     INTEGER,
+    created_at         INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_signal_outcomes_check
+    ON signal_outcomes (check_5d_at, outcome_5d);
 `

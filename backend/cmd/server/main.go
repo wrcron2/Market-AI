@@ -217,6 +217,60 @@ func main() {
 		writeJSON(w, limits)
 	})
 
+	// ─── Signal postmortem ────────────────────────────────────────────────────
+	mux.HandleFunc("/api/signal-outcomes/stats", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		stats, err := database.GetOutcomeStats()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, stats)
+	})
+	mux.HandleFunc("/api/signal-outcomes/pending-checks", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		outcomes, err := database.GetPendingOutcomeChecks(time.Now().UnixMilli())
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"outcomes": outcomes})
+	})
+	mux.HandleFunc("/api/signal-outcomes/update", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			SignalID string  `json:"signal_id"`
+			Horizon  string  `json:"horizon"` // "5d" or "20d"
+			Price    float64 `json:"price"`
+			Return   float64 `json:"return_pct"`
+			Outcome  string  `json:"outcome"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		var err error
+		if req.Horizon == "5d" {
+			err = database.UpdateOutcome5d(req.SignalID, req.Price, req.Return, req.Outcome)
+		} else {
+			err = database.UpdateOutcome20d(req.SignalID, req.Price, req.Return, req.Outcome)
+		}
+		if err != nil {
+			http.Error(w, "update failed", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"success": true})
+	})
+
 	// ─── Alpaca proxy (read-only, for dashboard) ──────────────────────────────
 	mux.HandleFunc("/api/alpaca/account",   alpacaProxy.Account)
 	mux.HandleFunc("/api/alpaca/positions", alpacaProxy.Positions)
