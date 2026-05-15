@@ -44,14 +44,16 @@ class AlpacaExecutor:
                 "ALPACA_API_KEY and ALPACA_SECRET_KEY must be set in the environment."
             )
 
-        self._client = httpx.Client(
-            base_url=base_url,
-            headers={
-                "APCA-API-KEY-ID":     api_key,
-                "APCA-API-SECRET-KEY": secret_key,
-                "Accept":              "application/json",
-                "Content-Type":        "application/json",
-            },
+        headers = {
+            "APCA-API-KEY-ID":     api_key,
+            "APCA-API-SECRET-KEY": secret_key,
+            "Accept":              "application/json",
+            "Content-Type":        "application/json",
+        }
+        self._client = httpx.Client(base_url=base_url, headers=headers, timeout=15)
+        self._data_client = httpx.Client(
+            base_url="https://data.alpaca.markets",
+            headers=headers,
             timeout=15,
         )
         log.info("alpaca_executor.init", base_url=base_url)
@@ -152,6 +154,28 @@ class AlpacaExecutor:
             status=order.get("status"),
         )
         return order
+
+    # ── Market Data ───────────────────────────────────────────────────────────
+
+    def get_latest_price(self, symbol: str) -> float | None:
+        """
+        Fetch the latest trade price for a symbol from Alpaca market data API.
+        Uses data.alpaca.markets — separate from the trading API.
+        Returns None if the symbol is not found or the request fails.
+        """
+        try:
+            resp = self._data_client.get(
+                f"/v2/stocks/{symbol}/trades/latest",
+                params={"feed": "iex"},
+            )
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            price = resp.json().get("trade", {}).get("p")
+            return float(price) if price is not None else None
+        except Exception as exc:
+            log.warning("alpaca.get_latest_price_failed", symbol=symbol, error=str(exc))
+            return None
 
     # ── Positions ──────────────────────────────────────────────────────────────
 

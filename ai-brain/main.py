@@ -204,7 +204,7 @@ def main() -> None:
     log.info("position_monitor.thread_started")
 
     # ── Start outcome checker — checks signal accuracy at 5d and 20d horizons ──
-    outcome_checker = OutcomeChecker(backend_url)
+    outcome_checker = OutcomeChecker(backend_url, alpaca)
     outcome_thread = threading.Thread(target=outcome_checker.run_forever, daemon=True, name="outcome-checker")
     outcome_thread.start()
     log.info("outcome_checker.thread_started")

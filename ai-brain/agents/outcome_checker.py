@@ -15,7 +15,6 @@ from typing import Any
 
 import httpx
 import structlog
-import yfinance as yf
 
 log = structlog.get_logger(__name__)
 
@@ -23,8 +22,9 @@ CHECK_INTERVAL_SECONDS = 3600  # check once per hour
 
 
 class OutcomeChecker:
-    def __init__(self, backend_url: str) -> None:
+    def __init__(self, backend_url: str, alpaca: Any) -> None:
         self._client = httpx.Client(base_url=backend_url, timeout=15)
+        self._alpaca = alpaca
 
     def run_forever(self) -> None:
         log.info("outcome_checker.started", interval=CHECK_INTERVAL_SECONDS)
@@ -85,14 +85,8 @@ class OutcomeChecker:
                 log.warning("outcome_checker.symbol_error", symbol=symbol, error=str(exc))
 
     def _fetch_price(self, symbol: str) -> float | None:
-        try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1d")
-            if hist.empty:
-                return None
-            return float(hist["Close"].iloc[-1])
-        except Exception:
-            return None
+        """Fetch latest trade price from Alpaca market data API."""
+        return self._alpaca.get_latest_price(symbol)
 
     def _get_entry_price(self, signal_id: str) -> float:
         try:
