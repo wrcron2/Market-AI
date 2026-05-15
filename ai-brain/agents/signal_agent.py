@@ -124,13 +124,28 @@ SPY trend:
   neutral: all strategies valid, require stronger confirmation
   downtrend: favour SELL/SHORT, BUY only on extreme mean_reversion with VIX > 28 (capitulation)
 
-== POSITION SIZING (portfolio = $100,000) ==
-Base allocation: $8,000 (8% per trade — leaves room for scale-in)
-Base shares = min(int(8000 / close), 500)
+== POSITION SIZING — ATR-Based Risk Model (portfolio = $100,000) ==
+Principle: size by how much you are willing to LOSE, not by how much you want to allocate.
+This is the professional standard — position size is determined by volatility, not capital allocation.
 
-ATR% multiplier: <1.5%→1.25x | 1.5–3%→1.0x | 3–5%→0.6x | 5–8%→0.4x
-VIX multiplier:  <15→1.1x | 15–20→1.0x | 20–25→0.8x | 25–30→0.6x | >30→0.5x
-Final quantity = int(base_shares × ATR_mult × VIX_mult), minimum 1
+Step 1 — Dollar risk per trade (VIX-adjusted):
+  VIX < 15:    risk 1.25% of account = $1,250
+  VIX 15–20:   risk 1.00% of account = $1,000
+  VIX 20–25:   risk 0.75% of account = $750
+  VIX 25–30:   risk 0.50% of account = $500
+  VIX > 30:    risk 0.40% of account = $400
+
+Step 2 — Stop distance (ATR × 2.0 multiplier):
+  stop_distance = atr_14 × 2.0
+  This is the distance from entry to stop-loss in dollars per share.
+
+Step 3 — Share count:
+  shares = int(dollar_risk / stop_distance)
+  Cap: min(shares, 500, int(8000 / close))  ← never allocate more than 8% of account value
+
+Example: close=$50, ATR=$1.50, VIX=17 → stop_distance=$3.00, dollar_risk=$1,000 → shares=333, capped at min(333, 500, 160) = 160
+
+Output null if stop_distance < 0.01 (ATR too small to calculate meaningful stop).
 
 == CONFIDENCE CALIBRATION ==
 Start at 0.60. Add evidence — but respect correlation between RSI and MACD.
@@ -159,7 +174,7 @@ Output null if total confidence < 0.70 — below this, expected value is negativ
 - momentum BUY when VIX > 25
 
 Output ONLY raw JSON starting with { — no markdown, no explanation:
-{"symbol":"NVDA","direction":"BUY","quantity":42,"limit_price":0,"reasoning":"RSI recovering 26→31 (upward, confirming reversal); %B at 0.06 (BB lower extreme); volume contracting to 0.85x avg (mean-reversion setup, not breakout); MACD histogram near zero, not directional. VIX 17 (normal), SPY uptrend. Three partially-independent signals align for mean_reversion BUY. RSI+MACD correlated so counted as single block (+0.08); volume contraction confirms overextension (+0.05); SPY tailwind (+0.06); VIX normal (+0.04) = 0.83 confidence.","strategy_name":"mean_reversion","initial_confidence":0.83}"""
+{"symbol":"NVDA","direction":"BUY","quantity":160,"limit_price":0,"reasoning":"RSI recovering 26→31 (upward, confirming reversal); %B at 0.06 (BB lower extreme); volume contracting to 0.85x avg (mean-reversion setup, not breakout); MACD histogram near zero, not directional. VIX 17 (normal), SPY uptrend. Three partially-independent signals align for mean_reversion BUY. RSI+MACD correlated so counted as single block (+0.08); volume contraction confirms overextension (+0.05); SPY tailwind (+0.06); VIX normal (+0.04) = 0.83 confidence. Sizing: VIX 17 → dollar_risk=$1,000; ATR=$3.12 → stop_distance=$6.24; shares=160 (capped at 8% allocation).","strategy_name":"mean_reversion","initial_confidence":0.83}"""
 
     def __init__(self, router: LLMRouter, strategy_name: str = "momentum_breakout") -> None:
         self.router = router
@@ -178,12 +193,27 @@ Output ONLY raw JSON starting with { — no markdown, no explanation:
         symbol = market_snapshot.get("symbol", "UNKNOWN")
         log.info("signal_agent.generate", symbol=symbol, strategy=self.strategy_name)
 
+        indicators = market_snapshot.get("indicators", {})
+        ohlcv      = market_snapshot.get("ohlcv", {})
+        ctx        = market_snapshot.get("market_context", {})
+        close      = ohlcv.get("close", 0)
+        atr        = indicators.get("atr_14", 0)
+        vix        = ctx.get("vix", 18)
+        stop_dist  = round(atr * 2.0, 4)
+
+        sizing_hint = (
+            f"\nSIZING INPUTS (use ATR-based formula from system prompt):\n"
+            f"  close=${close}, atr_14=${atr}, stop_distance=${stop_dist} (atr×2.0), vix={vix}\n"
+        )
+
         user_prompt = (
             f"Analyze this market data and output a trading signal JSON.\n\n"
-            f"MARKET DATA:\n{json.dumps(market_snapshot, indent=2)}\n\n"
+            f"MARKET DATA:\n{json.dumps(market_snapshot, indent=2)}\n"
+            f"{sizing_hint}\n"
             f"OUTPUT a JSON object with exactly these keys: "
-            f"symbol, direction (BUY/SELL/SHORT/COVER), quantity (integer shares), "
-            f"limit_price (0 for market), reasoning (string), strategy_name, initial_confidence (0.0-1.0)"
+            f"symbol, direction (BUY/SELL/SHORT/COVER), quantity (integer shares, use ATR sizing), "
+            f"limit_price (0 for market), reasoning (string, include sizing calc), "
+            f"strategy_name, initial_confidence (0.0-1.0)"
         )
 
         raw = ""
