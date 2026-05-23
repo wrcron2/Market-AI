@@ -94,7 +94,7 @@ class LLMRouter:
                 {"role": "system", "content": system},
                 {"role": "user",   "content": user},
             ],
-            options={"num_predict": max_tokens},
+            options={"num_predict": max_tokens, "num_ctx": 8192},
             format=fmt,
             think=False,
         )
