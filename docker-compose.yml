@@ -23,7 +23,8 @@ services:
       - "${BRAIN_GRPC_PORT:-50052}:50052"
     env_file: .env
     # NOTE: Ollama must be running on the host at OLLAMA_HOST
-    # Add `extra_hosts: ["host.docker.internal:host-gateway"]` if needed
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   # ─── React Frontend ───────────────────────────────────────────────────────────
