@@ -33,3 +33,4 @@ infra/db/*.db-wal
 .idea/
 *.swp
 .claude/worktrees/
+.claude/settings.local.json
