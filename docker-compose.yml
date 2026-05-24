@@ -4,6 +4,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: market-ai-backend:${APP_VERSION:-latest}
     ports:
       - "${GO_SERVER_PORT:-8080}:8080"   # REST / HTTP + WebSocket (/ws)
       - "${GO_GRPC_PORT:-50051}:50051"   # gRPC (brain → backend)
@@ -19,6 +20,7 @@ services:
     build:
       context: ./ai-brain
       dockerfile: Dockerfile
+    image: market-ai-brain:${APP_VERSION:-latest}
     ports:
       - "${BRAIN_GRPC_PORT:-50052}:50052"
     env_file: .env
@@ -32,6 +34,7 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: market-ai-frontend:${APP_VERSION:-latest}
     ports:
       - "3000:3000"
     env_file: .env
