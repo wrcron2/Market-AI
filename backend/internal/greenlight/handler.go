@@ -1,5 +1,5 @@
 // Package greenlight exposes the HTTP API for the trader's Green Light gate.
-// NO trade can reach IBKR without an explicit Approve call here.
+// Green Light → Alpaca paper order (market order, day TIF).
 package greenlight
 
 import (
@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/marketflow/backend/internal/alpaca"
 	"github.com/marketflow/backend/internal/db"
 	"github.com/marketflow/backend/internal/ibkr"
 	"github.com/marketflow/backend/internal/mode"
@@ -20,17 +21,19 @@ type Handler struct {
 	db      *db.DB
 	hub     *ws.Hub
 	ibkr    *ibkr.Client
+	alpaca  *alpaca.Handler
 	mode    *mode.Manager
 	log     *zap.Logger
 }
 
 func NewHandler(database *db.DB, hub *ws.Hub, modeManager *mode.Manager, log *zap.Logger) *Handler {
 	return &Handler{
-		db:   database,
-		hub:  hub,
-		ibkr: ibkr.NewClient(log),
-		mode: modeManager,
-		log:  log,
+		db:     database,
+		hub:    hub,
+		ibkr:   ibkr.NewClient(log),
+		alpaca: alpaca.NewHandler(),
+		mode:   modeManager,
+		log:    log,
 	}
 }
 
@@ -148,37 +151,17 @@ func (h *Handler) Reject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"success": true, "signal_id": req.SignalID})
 }
 
-// submitOrder routes the approved order to the correct executor based on
-// the current trading mode:
-//   - Yahoo mode → simulated execution (no real broker call)
-//   - IBKR mode  → real IBKR TWS execution via the air-gapped client
-//
-// This is the ONLY place where an order leaves the staged state.
+// submitToAlpaca places a market order on Alpaca paper trading and updates DB.
+// This is the ONLY place where a manually approved order reaches the broker.
 func (h *Handler) submitToIBKR(order *db.StagedOrder) {
-	if !h.mode.IsLive() {
-		// ── Yahoo / simulation mode ────────────────────────────────────────────
-		h.log.Info("[SIM] simulating order execution (Yahoo mode)",
+	result, err := h.alpaca.PlaceOrder(order.Symbol, order.Direction, order.Quantity)
+	if err != nil {
+		h.log.Error("alpaca order placement failed",
 			zap.String("signal_id", order.ID),
 			zap.String("symbol", order.Symbol),
-			zap.String("direction", order.Direction),
-		)
-		_ = h.db.TransitionStatus(order.ID, db.StatusExecuted, "simulator", "Simulated fill — Yahoo Finance mode")
-		h.hub.Broadcast("order_executed", map[string]any{
-			"signal_id":    order.ID,
-			"ibkr_order_id": nil,
-			"simulated":    true,
-		})
-		return
-	}
-
-	// ── IBKR live mode ─────────────────────────────────────────────────────────
-	ibkrID, err := h.ibkr.PlaceOrder(order)
-	if err != nil {
-		h.log.Error("IBKR order placement failed",
-			zap.String("signal_id", order.ID),
 			zap.Error(err),
 		)
-		_ = h.db.TransitionStatus(order.ID, db.StatusFailed, "ibkr", err.Error())
+		_ = h.db.TransitionStatus(order.ID, db.StatusFailed, "alpaca", err.Error())
 		h.hub.Broadcast("order_failed", map[string]string{
 			"signal_id": order.ID,
 			"error":     err.Error(),
@@ -186,16 +169,19 @@ func (h *Handler) submitToIBKR(order *db.StagedOrder) {
 		return
 	}
 
-	_ = h.db.SetIBKROrderID(order.ID, ibkrID)
-	_ = h.db.TransitionStatus(order.ID, db.StatusExecuted, "ibkr", "Order executed")
+	note := "Alpaca paper order " + result.ID
+	_ = h.db.TransitionStatus(order.ID, db.StatusExecuted, "alpaca", note)
 	h.hub.Broadcast("order_executed", map[string]any{
-		"signal_id":     order.ID,
-		"ibkr_order_id": ibkrID,
-		"simulated":     false,
+		"signal_id":       order.ID,
+		"alpaca_order_id": result.ID,
+		"alpaca_status":   result.Status,
+		"simulated":       false,
 	})
-	h.log.Info("Order executed via IBKR",
+	h.log.Info("order placed on Alpaca paper",
 		zap.String("signal_id", order.ID),
-		zap.Int64("ibkr_order_id", ibkrID),
+		zap.String("symbol", order.Symbol),
+		zap.String("alpaca_order_id", result.ID),
+		zap.String("status", result.Status),
 	)
 }
 

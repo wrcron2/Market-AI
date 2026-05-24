@@ -1,14 +1,16 @@
-// Package alpaca proxies read-only Alpaca paper account endpoints to the dashboard.
-// The Python brain owns all write operations (orders, closes). This package
-// only reads: account info and current positions.
+// Package alpaca proxies Alpaca paper account endpoints to the dashboard
+// and places orders on behalf of the Green Light handler.
 package alpaca
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
+	"strings"
 )
 
 // Handler proxies dashboard requests to the Alpaca paper API.
@@ -82,6 +84,60 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// OrderResult is returned by PlaceOrder.
+type OrderResult struct {
+	ID     string  `json:"id"`
+	Status string  `json:"status"`
+	Symbol string  `json:"symbol"`
+	Qty    float64 `json:"qty,string"`
+}
+
+// PlaceOrder submits a market order to Alpaca paper trading.
+// direction must be "BUY" or "SELL". qty is rounded to nearest integer.
+func (h *Handler) PlaceOrder(symbol, direction string, qty float64) (*OrderResult, error) {
+	if h.apiKey == "" || h.secretKey == "" {
+		return nil, fmt.Errorf("alpaca credentials not configured")
+	}
+	side := strings.ToLower(direction)
+	if side != "buy" && side != "sell" {
+		return nil, fmt.Errorf("unsupported direction: %s", direction)
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"symbol":        symbol,
+		"qty":           fmt.Sprintf("%d", int(math.Round(qty))),
+		"side":          side,
+		"type":          "market",
+		"time_in_force": "day",
+	})
+
+	req, err := http.NewRequest(http.MethodPost, h.baseURL+"/v2/orders", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("APCA-API-KEY-ID", h.apiKey)
+	req.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("alpaca unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("alpaca order rejected (%d): %s", resp.StatusCode, string(respBody))
+	}
+
+	var result OrderResult
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("alpaca response parse error: %w", err)
+	}
+	return &result, nil
 }
 
 // WriteJSON is a shared helper for JSON responses within this package.
