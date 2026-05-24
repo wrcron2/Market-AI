@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
 import { CheckCircle, XCircle, TrendingUp, TrendingDown, Brain, AlertTriangle, Search, Filter, ChevronLeft, ChevronRight, Calendar } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 import type { StagedOrder, Direction } from '../types'
 
 interface Props {
@@ -286,7 +287,7 @@ function OrderCard({ order, comment, onCommentChange, onApprove, onReject, isPro
       {/* AI Reasoning */}
       <details className="reasoning-details">
         <summary>AI Reasoning</summary>
-        <p className="reasoning-text">{order.reasoning}</p>
+        <div className="reasoning-text"><ReactMarkdown>{order.reasoning}</ReactMarkdown></div>
       </details>
 
       {/* Trader comment */}
