@@ -11,6 +11,7 @@ services:
     env_file: .env
     volumes:
       - ./infra/db:/app/db               # persist SQLite on host
+      - ./infra/versions:/app/versions   # version history + switch requests
     depends_on:
       - brain
     restart: unless-stopped

@@ -5,6 +5,7 @@ import { PortfolioStats, type Stats } from './PortfolioStats'
 import { TradingModeToggle, useTradingMode } from './TradingModeToggle'
 import { AutoExecuteToggle, useAutoExecute } from './AutoExecuteToggle'
 import { AlpacaPortfolio } from './AlpacaPortfolio'
+import { VersionsPanel } from './VersionsPanel'
 import { useWebSocket } from '../hooks/useWebSocket'
 import type { StagedOrder, ListPendingResponse } from '../types'
 
@@ -12,7 +13,7 @@ const API_BASE = '/api'
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 const MAX_FEED_EVENTS = 100
 
-type Tab = 'signals' | 'portfolio'
+type Tab = 'signals' | 'portfolio' | 'versions'
 
 export function Dashboard() {
   const { mode, changeMode }           = useTradingMode()
@@ -175,19 +176,27 @@ export function Dashboard() {
         >
           Alpaca Portfolio
         </button>
+        <button
+          className={`tab-btn ${activeTab === 'versions' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('versions')}
+        >
+          Versions
+        </button>
       </div>
 
-      {activeTab === 'signals' ? (
+      {activeTab === 'signals' && (
         <div className="dashboard-body">
           <GreenLightPanel orders={pendingOrders} onApprove={approve} onReject={reject} />
           <SignalFeed events={feedEvents} />
         </div>
-      ) : (
+      )}
+      {activeTab === 'portfolio' && (
         <AlpacaPortfolio
           llmAlert={llmAlert}
           onClearAlert={() => setLlmAlert(null)}
         />
       )}
+      {activeTab === 'versions' && <VersionsPanel />}
     </div>
   )
 }

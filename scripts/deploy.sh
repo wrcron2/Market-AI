@@ -10,7 +10,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:-$(date +%Y%m%d-%H%M)}"
-DEPLOY_FILE=".current-version"
+VERSIONS_DIR="infra/versions"
+mkdir -p "$VERSIONS_DIR"
 
 echo "==> Deploying version: $VERSION"
 
@@ -26,8 +27,8 @@ done
 APP_VERSION="$VERSION" sudo -E docker-compose up -d
 
 # Save version history
-echo "$VERSION  $(date '+%Y-%m-%d %H:%M')  $(git rev-parse --short HEAD 2>/dev/null || echo 'no-git')" >> ".version-history"
-echo "$VERSION" > "$DEPLOY_FILE"
+echo "$VERSION  $(date '+%Y-%m-%d %H:%M')  $(git rev-parse --short HEAD 2>/dev/null || echo 'no-git')" >> "$VERSIONS_DIR/history"
+echo "$VERSION" > "$VERSIONS_DIR/current"
 
 echo ""
 echo "==> Deployed: $VERSION"

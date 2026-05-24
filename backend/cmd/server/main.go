@@ -23,6 +23,7 @@ import (
 	"github.com/marketflow/backend/internal/greenlight"
 	grpcbridge "github.com/marketflow/backend/internal/grpc"
 	"github.com/marketflow/backend/internal/mode"
+	"github.com/marketflow/backend/internal/versions"
 	"github.com/marketflow/backend/internal/ws"
 	proto "github.com/marketflow/backend/proto"
 )
@@ -274,6 +275,10 @@ func main() {
 	// ─── Alpaca proxy (read-only, for dashboard) ──────────────────────────────
 	mux.HandleFunc("/api/alpaca/account",   alpacaProxy.Account)
 	mux.HandleFunc("/api/alpaca/positions", alpacaProxy.Positions)
+
+	// ─── Version management ────────────────────────────────────────────────────
+	mux.HandleFunc("/api/versions",        versions.List)
+	mux.HandleFunc("/api/versions/switch", versions.Switch)
 
 	// ─── Internal broadcast (Python brain → dashboard via WebSocket) ──────────
 	// Only the brain calls this. No CORS check needed (same host).

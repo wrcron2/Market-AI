@@ -11,14 +11,14 @@ cd "$(dirname "$0")/.."
 
 if [[ "${1:-}" == "--list" ]]; then
   echo "==> Available versions:"
-  if [[ -f .version-history ]]; then
-    cat .version-history
+  if [[ -f infra/versions/history ]]; then
+    cat infra/versions/history
   else
     echo "  (no version history found)"
   fi
   echo ""
   echo "==> Currently running:"
-  cat .current-version 2>/dev/null || echo "  (unknown)"
+  cat infra/versions/current 2>/dev/null || echo "  (unknown)"
   exit 0
 fi
 
@@ -45,10 +45,12 @@ if [[ ${#MISSING[@]} -gt 0 ]]; then
   exit 1
 fi
 
-CURRENT=$(cat .current-version 2>/dev/null || echo "unknown")
-echo "==> Rolling back: $CURRENT → $TARGET"
+VERSIONS_DIR="infra/versions"
+CURRENT=$(cat "$VERSIONS_DIR/current" 2>/dev/null || cat .current-version 2>/dev/null || echo "unknown")
+echo "==> Switching: $CURRENT → $TARGET"
 
 APP_VERSION="$TARGET" sudo -E docker-compose up -d --no-build
 
-echo "$TARGET" > .current-version
-echo "==> Rollback complete. Running version: $TARGET"
+echo "$TARGET" > "$VERSIONS_DIR/current"
+rm -f "$VERSIONS_DIR/switch-request"
+echo "==> Switch complete. Running version: $TARGET"

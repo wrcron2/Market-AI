@@ -1,0 +1,16 @@
+[Unit]
+Description=MarketFlow AI version switcher watcher
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/home/ubuntu/Market-AI/scripts/version-watcher.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
