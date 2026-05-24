@@ -9,7 +9,6 @@ interface Version {
 
 export function VersionsPanel() {
   const [versions, setVersions]     = useState<Version[]>([])
-  const [current, setCurrent]       = useState('')
   const [switching, setSwitching]   = useState<string | null>(null)
   const [error, setError]           = useState<string | null>(null)
   const [loading, setLoading]       = useState(true)
@@ -20,7 +19,6 @@ export function VersionsPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setVersions(data.versions ?? [])
-      setCurrent(data.current ?? '')
       setError(null)
     } catch (e: any) {
       setError(e.message)
@@ -50,14 +48,13 @@ export function VersionsPanel() {
     }
   }
 
-  const pollUntilBack = (tag: string) => {
+  const pollUntilBack = (_tag: string) => {
     const interval = setInterval(async () => {
       try {
         const res = await fetch('/api/versions')
         if (res.ok) {
           const data = await res.json()
           setVersions(data.versions ?? [])
-          setCurrent(data.current ?? '')
           setSwitching(null)
           clearInterval(interval)
         }

@@ -15,8 +15,8 @@ mkdir -p "$VERSIONS_DIR"
 
 echo "==> Deploying version: $VERSION"
 
-# Build all images and tag them with the version
-APP_VERSION="$VERSION" sudo -E docker-compose build
+# Build all images and tag them with the version (--no-cache ensures Go recompiles)
+APP_VERSION="$VERSION" sudo -E docker-compose build --no-cache
 
 # Also tag as 'latest'
 for svc in brain backend frontend; do
@@ -34,4 +34,4 @@ echo ""
 echo "==> Deployed: $VERSION"
 echo "==> To roll back: ./scripts/rollback.sh <version>"
 echo "==> Version history:"
-tail -5 .version-history
+tail -5 "$VERSIONS_DIR/history"
