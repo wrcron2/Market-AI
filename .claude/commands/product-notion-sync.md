@@ -1,0 +1,1 @@
+/Users/ronleibovitch/Documents/Claude/Projects/Market-AI/.claude/skills/product-notion-sync.md
