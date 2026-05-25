@@ -7,7 +7,7 @@ COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -o marketflow-server ./cmd/server
 
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates sqlite-libs
+RUN apk add --no-cache ca-certificates sqlite
 WORKDIR /app
 COPY --from=builder /app/marketflow-server .
 EXPOSE 8080 8081 50051
