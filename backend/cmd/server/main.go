@@ -549,6 +549,42 @@ func main() {
 		})
 	})
 
+	// ─── Market Hours Auto-Execute Watcher ───────────────────────────────────
+	// Flips auto-execute ON at 9:25 AM ET and OFF at 4:05 PM ET on weekdays.
+	// Broadcasts the change so the dashboard toggle updates in real time.
+	// Manual overrides via the dashboard always take precedence until the next
+	// open/close boundary.
+	go func() {
+		loc, err := time.LoadLocation("America/New_York")
+		if err != nil {
+			logger.Error("market-watcher: cannot load ET timezone", zap.Error(err))
+			return
+		}
+		var prevState *bool // nil = unknown, force first broadcast
+		for {
+			now := time.Now().In(loc)
+			wd := now.Weekday()
+			isWeekday := wd >= time.Monday && wd <= time.Friday
+			open := time.Date(now.Year(), now.Month(), now.Day(), 9, 25, 0, 0, loc)
+			close := time.Date(now.Year(), now.Month(), now.Day(), 16, 5, 0, 0, loc)
+			shouldEnable := isWeekday && now.After(open) && now.Before(close)
+
+			if prevState == nil || *prevState != shouldEnable {
+				autoExMu.Lock()
+				autoExEnabled = shouldEnable
+				autoExMu.Unlock()
+				hub.Broadcast("auto_execute_changed", map[string]any{"enabled": shouldEnable})
+				if shouldEnable {
+					logger.Info("market-watcher: market open — auto-execute ON")
+				} else {
+					logger.Info("market-watcher: market closed — auto-execute OFF")
+				}
+				prevState = &shouldEnable
+			}
+			time.Sleep(30 * time.Second)
+		}
+	}()
+
 	httpPort := getEnv("GO_SERVER_PORT", "8080")
 	httpSrv := &http.Server{
 		Addr:         ":" + httpPort,
