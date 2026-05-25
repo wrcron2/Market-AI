@@ -1,0 +1,1 @@
+Fix Alpine 3.19 Docker build: sqlite-libs → sqlite
