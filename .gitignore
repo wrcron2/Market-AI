@@ -25,6 +25,11 @@ infra/db/*.db
 infra/db/*.db-shm
 infra/db/*.db-wal
 
+# Version history (generated at deploy time — don't wipe with git clean)
+infra/versions/history
+infra/versions/current
+infra/versions/switch-request
+
 # macOS
 .DS_Store
 
