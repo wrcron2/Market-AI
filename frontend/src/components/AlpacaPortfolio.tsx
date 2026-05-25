@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle } from 'lucide-react'
+import { PerformanceHistory } from './PerformanceHistory'
 import {
   ResponsiveContainer,
   LineChart, Line,
@@ -191,6 +192,8 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
         <AccountStat label="Realized P&L Today" value={`${(limits?.realized_pnl ?? 0) >= 0 ? '+' : ''}$${(limits?.realized_pnl ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} className={(limits?.realized_pnl ?? 0) >= 0 ? 'pnl-positive' : 'pnl-negative'} />
         <AccountStat label="Total Earnings" value={`${allTimePnl >= 0 ? '+' : ''}$${allTimePnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} className={allTimePnl >= 0 ? 'pnl-positive' : 'pnl-negative'} />
       </div>
+
+      <PerformanceHistory />
 
       <div className="alpaca-refresh-row">
         <RefreshCw size={11} />

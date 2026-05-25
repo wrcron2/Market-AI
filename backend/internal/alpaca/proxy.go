@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 )
 
 // Handler proxies dashboard requests to the Alpaca paper API.
@@ -194,6 +195,107 @@ func (h *Handler) ClosePosition(symbol string) (*CloseResult, error) {
 	_ = json.Unmarshal(respBody, &order)
 	orderID, _ := order["id"].(string)
 	return &CloseResult{ID: orderID, Symbol: symbol, FillPrice: currentPrice}, nil
+}
+
+// PeriodResult holds portfolio P&L for a single time period.
+type PeriodResult struct {
+	Label      string  `json:"label"`
+	Period     string  `json:"period"`
+	StartValue float64 `json:"start_value"`
+	EndValue   float64 `json:"end_value"`
+	PnL        float64 `json:"pnl"`
+	PnLPct     float64 `json:"pnl_pct"`
+}
+
+// PortfolioHistory fetches equity-curve P&L for 1D / 5D / 3M / 6M / 1Y in
+// parallel and returns all five results in one response.
+func (h *Handler) PortfolioHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.apiKey == "" || h.secretKey == "" {
+		http.Error(w, "Alpaca credentials not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	type spec struct {
+		label     string
+		period    string
+		timeframe string
+	}
+	specs := []spec{
+		{"1 Year", "1A", "1D"},
+		{"6 Months", "6M", "1D"},
+		{"3 Months", "3M", "1D"},
+		{"5 Days", "5D", "1D"},
+		{"1 Day", "1D", "5Min"},
+	}
+
+	results := make([]PeriodResult, len(specs))
+	var wg sync.WaitGroup
+
+	for i, s := range specs {
+		wg.Add(1)
+		go func(idx int, s spec) {
+			defer wg.Done()
+			url := fmt.Sprintf(
+				"%s/v2/account/portfolio/history?period=%s&timeframe=%s&extended_hours=false",
+				h.baseURL, s.period, s.timeframe,
+			)
+			req, _ := http.NewRequest(http.MethodGet, url, nil)
+			req.Header.Set("APCA-API-KEY-ID", h.apiKey)
+			req.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+			req.Header.Set("Accept", "application/json")
+
+			resp, err := h.client.Do(req)
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+
+			var data struct {
+				Equity []any `json:"equity"`
+			}
+			if err := json.Unmarshal(body, &data); err != nil {
+				return
+			}
+
+			var equities []float64
+			for _, e := range data.Equity {
+				if e == nil {
+					continue
+				}
+				v, ok := e.(float64)
+				if ok && v > 0 {
+					equities = append(equities, v)
+				}
+			}
+			if len(equities) < 2 {
+				return
+			}
+
+			start := equities[0]
+			end := equities[len(equities)-1]
+			pnl := end - start
+			pct := 0.0
+			if start > 0 {
+				pct = (pnl / start) * 100
+			}
+			results[idx] = PeriodResult{
+				Label:      s.label,
+				Period:     s.period,
+				StartValue: start,
+				EndValue:   end,
+				PnL:        pnl,
+				PnLPct:     pct,
+			}
+		}(i, s)
+	}
+
+	wg.Wait()
+	WriteJSON(w, map[string]any{"periods": results})
 }
 
 // WriteJSON is a shared helper for JSON responses within this package.
