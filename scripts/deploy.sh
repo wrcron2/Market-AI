@@ -30,6 +30,13 @@ APP_VERSION="$VERSION" sudo -E docker-compose up -d
 echo "$VERSION  $(date '+%Y-%m-%d %H:%M')  $(git rev-parse --short HEAD 2>/dev/null || echo 'no-git')" >> "$VERSIONS_DIR/history"
 echo "$VERSION" > "$VERSIONS_DIR/current"
 
+# Auto-populate version description from the latest git commit message
+mkdir -p "$VERSIONS_DIR/notes"
+NOTE_FILE="$VERSIONS_DIR/notes/$VERSION"
+if [ ! -f "$NOTE_FILE" ]; then
+  git log -1 --pretty=format:"%s" 2>/dev/null > "$NOTE_FILE" || echo "Deploy $VERSION" > "$NOTE_FILE"
+fi
+
 echo ""
 echo "==> Deployed: $VERSION"
 echo "==> To roll back: ./scripts/rollback.sh <version>"

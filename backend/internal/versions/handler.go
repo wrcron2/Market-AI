@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -13,6 +14,7 @@ const (
 	historyFile = "/app/versions/history"
 	currentFile = "/app/versions/current"
 	switchFile  = "/app/versions/switch-request"
+	notesDir    = "/app/versions/notes"
 )
 
 // Version represents one deployed build.
@@ -20,6 +22,7 @@ type Version struct {
 	Tag       string `json:"tag"`
 	Timestamp string `json:"timestamp"`
 	GitSHA    string `json:"git_sha"`
+	Note      string `json:"note"`
 	Active    bool   `json:"active"`
 }
 
@@ -69,6 +72,39 @@ func Switch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// UpdateNote saves a description for a specific version.
+// PATCH /api/versions/{version}/note  { "note": "some text" }
+func UpdateNote(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPatch {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	version := r.PathValue("version")
+	if version == "" || strings.Contains(version, "..") {
+		http.Error(w, "invalid version", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Note string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	_ = os.MkdirAll(notesDir, 0755)
+	notePath := filepath.Join(notesDir, version)
+	if err := os.WriteFile(notePath, []byte(strings.TrimSpace(req.Note)), 0644); err != nil {
+		http.Error(w, "failed to save note", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"success": true})
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 func parseHistory(path, current string) []Version {
@@ -93,6 +129,7 @@ func parseHistory(path, current string) []Version {
 		if len(parts) >= 4 {
 			v.GitSHA = parts[3]
 		}
+		v.Note = strings.TrimSpace(readFile(filepath.Join(notesDir, v.Tag)))
 		v.Active = v.Tag == current
 		versions = append(versions, v)
 	}

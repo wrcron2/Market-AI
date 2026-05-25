@@ -316,8 +316,9 @@ func main() {
 	})
 
 	// ─── Alpaca proxy (read-only, for dashboard) ──────────────────────────────
-	mux.HandleFunc("/api/alpaca/account",   alpacaProxy.Account)
-	mux.HandleFunc("/api/alpaca/positions", alpacaProxy.Positions)
+	mux.HandleFunc("/api/alpaca/account",           alpacaProxy.Account)
+	mux.HandleFunc("/api/alpaca/positions",         alpacaProxy.Positions)
+	mux.HandleFunc("/api/alpaca/portfolio-history", alpacaProxy.PortfolioHistory)
 
 	// ─── Close an open position via Alpaca ────────────────────────────────────
 	mux.HandleFunc("/api/alpaca/positions/{symbol}/close", func(w http.ResponseWriter, r *http.Request) {
@@ -404,8 +405,9 @@ func main() {
 	})
 
 	// ─── Version management ────────────────────────────────────────────────────
-	mux.HandleFunc("/api/versions",        versions.List)
-	mux.HandleFunc("/api/versions/switch", versions.Switch)
+	mux.HandleFunc("/api/versions",                    versions.List)
+	mux.HandleFunc("/api/versions/switch",             versions.Switch)
+	mux.HandleFunc("/api/versions/{version}/note",     versions.UpdateNote)
 
 	// ─── Internal broadcast (Python brain → dashboard via WebSocket) ──────────
 	// Only the brain calls this. No CORS check needed (same host).

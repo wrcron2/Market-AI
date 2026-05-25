@@ -467,6 +467,43 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
 .pnl-positive { color: var(--green); }
 .pnl-negative { color: var(--red); }
 
+/* ─── Performance History ─────────────────────────────────────────────────── */
+.perf-history { display: flex; flex-direction: column; gap: 10px; }
+
+.perf-history-row {
+  display: flex; gap: 12px; flex-wrap: wrap;
+}
+
+.perf-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  min-width: 150px; flex: 1;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.perf-card-up   { border-left-color: var(--green); }
+.perf-card-down { border-left-color: var(--red); }
+
+.perf-card-label {
+  font-size: 11px; font-weight: 600; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.perf-card-pnl {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 20px; font-weight: 700; color: var(--text);
+}
+.perf-card-up   .perf-card-pnl { color: var(--green); }
+.perf-card-down .perf-card-pnl { color: var(--red); }
+
+.perf-card-pct {
+  font-size: 13px; font-weight: 600;
+}
+.perf-card-range {
+  font-size: 11px; color: var(--text-muted); margin-top: 2px;
+}
+
 /* Refresh row */
 .alpaca-refresh-row {
   display: flex; align-items: center; gap: 8px;
@@ -571,3 +608,19 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
 
 /* Failed order row */
 .failed-row td { opacity: 0.9; }
+
+/* Version notes */
+.version-note { min-width: 200px; max-width: 320px; }
+.note-display { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.note-display:hover { background: rgba(255,255,255,0.05); }
+.note-text { color: var(--text); font-size: 13px; }
+.note-placeholder { color: var(--text-muted); font-size: 12px; font-style: italic; }
+.note-edit-icon { color: var(--text-muted); font-size: 11px; opacity: 0; transition: opacity 0.15s; }
+.note-display:hover .note-edit-icon { opacity: 1; }
+.note-edit-row { display: flex; align-items: center; gap: 6px; }
+.note-input { background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 6px; font-size: 13px; width: 220px; font-family: inherit; }
+.note-input:focus { outline: none; border-color: #6c63ff; }
+.note-save-btn { background: rgba(99,102,241,0.2); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+.note-save-btn:hover:not(:disabled) { background: rgba(99,102,241,0.35); }
+.note-cancel-btn { background: none; color: var(--text-muted); border: none; padding: 4px 6px; cursor: pointer; font-size: 14px; }
+.note-cancel-btn:hover { color: var(--text); }
