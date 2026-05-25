@@ -40,10 +40,11 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
   const [lastRefresh,  setLastRefresh]  = useState<Date | null>(null)
   const [selling,      setSelling]      = useState<string | null>(null)
   const [retrying,     setRetrying]     = useState<string | null>(null)
+  const [equityHistory, setEquityHistory] = useState<{ timestamp: number; equity: number }[]>([])
 
   const refresh = useCallback(async () => {
     try {
-      const [acctRes, posRes, dbPosRes, limRes, histRes, sumRes, failRes] = await Promise.all([
+      const [acctRes, posRes, dbPosRes, limRes, histRes, sumRes, failRes, eqRes] = await Promise.all([
         fetch('/api/alpaca/account'),
         fetch('/api/alpaca/positions'),
         fetch('/api/positions'),
@@ -51,6 +52,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
         fetch('/api/positions/history'),
         fetch('/api/portfolio/summary'),
         fetch('/api/orders/failed'),
+        fetch('/api/alpaca/equity-history?period=1M&timeframe=1D'),
       ])
       if (acctRes.ok)   setAccount(await acctRes.json())
       if (posRes.ok)    setPositions(await posRes.json())
@@ -59,6 +61,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
       if (histRes.ok)   setAllPositions((await histRes.json()).positions ?? [])
       if (sumRes.ok)    setSummary(await sumRes.json())
       if (failRes.ok)   setFailedOrders((await failRes.json()).orders ?? [])
+      if (eqRes.ok)     setEquityHistory((await eqRes.json()).points ?? [])
       setError(null)
       setLastRefresh(new Date())
     } catch (err) {
@@ -145,6 +148,12 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
     name: p.symbol,
     pnl:  parseFloat((p.realized_pnl ?? 0).toFixed(2)),
     date: fmtShortDate(p.exit_time!),
+  }))
+
+  // Portfolio equity over time — from Alpaca history API
+  const equityChartData = equityHistory.map(pt => ({
+    date:   new Date(pt.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+    equity: parseFloat(pt.equity.toFixed(2)),
   }))
 
   if (loading) {
@@ -287,10 +296,69 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
         </div>
       )}
 
-      {/* ── Performance Charts (open P&L always; cumulative only when closed trades exist) ── */}
-      {(openBarData.length > 0 || cumulativeData.length > 0) && (
+      {/* ── Performance Charts ──────────────────────────────────────────────── */}
+      {(equityChartData.length > 0 || openBarData.length > 0 || cumulativeData.length > 0) && (
         <div className="charts-section">
           <h3 className="alpaca-section-title" style={{ marginTop: '32px' }}>Performance</h3>
+
+          {/* Portfolio value over time — full width */}
+          {equityChartData.length > 0 && (
+            <div className="chart-card" style={{ marginBottom: 16 }}>
+              <div className="chart-title">Portfolio Value Over Time</div>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={equityChartData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#8b8fa8' }} />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#8b8fa8' }}
+                    tickFormatter={v => `$${(v as number).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
+                    width={80}
+                    domain={['auto', 'auto']}
+                  />
+                  <Tooltip
+                    contentStyle={{ background: '#1a1f35', border: '1px solid #2a3050', borderRadius: 8, padding: '10px 14px' }}
+                    labelStyle={{ color: '#c5c9e0', fontWeight: 600, marginBottom: 6 }}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null
+                      const val = payload[0]?.value as number
+                      return (
+                        <div className="equity-tooltip">
+                          <div className="eq-tt-date">{label}</div>
+                          <div className="eq-tt-value">${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                          {positions.length > 0 && (
+                            <div className="eq-tt-positions">
+                              {positions.map(p => {
+                                const pl = parseFloat(p.unrealized_pl)
+                                return (
+                                  <div key={p.symbol} className="eq-tt-pos">
+                                    <span className="eq-tt-sym">{p.symbol}</span>
+                                    <span className="eq-tt-entry">@ ${parseFloat(p.avg_entry_price).toFixed(2)}</span>
+                                    <span className={`eq-tt-pl ${pl >= 0 ? 'pnl-positive' : 'pnl-negative'}`}>
+                                      {pl >= 0 ? '+' : ''}${pl.toFixed(2)}
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    }}
+                  />
+                  <ReferenceLine y={equityChartData[0]?.equity} stroke="#4a5080" strokeDasharray="4 4" />
+                  <Line
+                    type="monotone"
+                    dataKey="equity"
+                    stroke="#6c63ff"
+                    strokeWidth={2}
+                    dot={false}
+                    activeDot={{ r: 5, fill: '#6c63ff' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
           <div className="charts-row">
 
             {/* Open positions unrealized P&L — always visible */}

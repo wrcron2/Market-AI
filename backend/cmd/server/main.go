@@ -319,6 +319,7 @@ func main() {
 	mux.HandleFunc("/api/alpaca/account",           alpacaProxy.Account)
 	mux.HandleFunc("/api/alpaca/positions",         alpacaProxy.Positions)
 	mux.HandleFunc("/api/alpaca/portfolio-history", alpacaProxy.PortfolioHistory)
+	mux.HandleFunc("/api/alpaca/equity-history",    alpacaProxy.EquityHistory)
 
 	// ─── Close an open position via Alpaca ────────────────────────────────────
 	mux.HandleFunc("/api/alpaca/positions/{symbol}/close", func(w http.ResponseWriter, r *http.Request) {
@@ -615,7 +616,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

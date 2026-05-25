@@ -593,6 +593,16 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
 .chart-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 12px 12px; }
 .chart-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 0.02em; }
 
+/* Equity curve tooltip */
+.equity-tooltip { background: #1a1f35; border: 1px solid #2a3050; border-radius: 8px; padding: 10px 14px; min-width: 200px; }
+.eq-tt-date  { font-size: 12px; font-weight: 600; color: #c5c9e0; margin-bottom: 4px; }
+.eq-tt-value { font-size: 16px; font-weight: 700; color: #6c63ff; margin-bottom: 8px; }
+.eq-tt-positions { border-top: 1px solid rgba(255,255,255,0.08); padding-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.eq-tt-pos  { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.eq-tt-sym  { font-weight: 600; color: #c5c9e0; min-width: 48px; }
+.eq-tt-entry { color: #8b8fa8; flex: 1; }
+.eq-tt-pl   { font-weight: 600; white-space: nowrap; }
+
 /* Bought date column */
 .pos-date { font-size: 12px; white-space: nowrap; }
 

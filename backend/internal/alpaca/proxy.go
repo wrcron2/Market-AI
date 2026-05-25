@@ -298,6 +298,87 @@ func (h *Handler) PortfolioHistory(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, map[string]any{"periods": results})
 }
 
+// EquityPoint is one data point in the portfolio equity curve.
+type EquityPoint struct {
+	Timestamp int64   `json:"timestamp"` // Unix ms
+	Equity    float64 `json:"equity"`
+}
+
+// EquityHistory returns a time-series of portfolio equity values.
+// GET /api/alpaca/equity-history?period=1M&timeframe=1D
+func (h *Handler) EquityHistory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.apiKey == "" || h.secretKey == "" {
+		http.Error(w, "Alpaca credentials not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	period := r.URL.Query().Get("period")
+	if period == "" {
+		period = "1M"
+	}
+	timeframe := r.URL.Query().Get("timeframe")
+	if timeframe == "" {
+		timeframe = "1D"
+	}
+
+	url := fmt.Sprintf(
+		"%s/v2/account/portfolio/history?period=%s&timeframe=%s&extended_hours=false",
+		h.baseURL, period, timeframe,
+	)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		http.Error(w, "request build error", http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("APCA-API-KEY-ID", h.apiKey)
+	req.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		http.Error(w, "alpaca unreachable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var raw struct {
+		Timestamp []int64 `json:"timestamp"`
+		Equity    []any   `json:"equity"`
+		BaseValue float64 `json:"base_value"`
+		Timeframe string  `json:"timeframe"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		http.Error(w, "parse error", http.StatusInternalServerError)
+		return
+	}
+
+	var points []EquityPoint
+	for i, ts := range raw.Timestamp {
+		if i >= len(raw.Equity) {
+			break
+		}
+		eq := raw.Equity[i]
+		if eq == nil {
+			continue
+		}
+		v, ok := eq.(float64)
+		if !ok || v <= 0 {
+			continue
+		}
+		points = append(points, EquityPoint{Timestamp: ts * 1000, Equity: v})
+	}
+
+	WriteJSON(w, map[string]any{
+		"points":     points,
+		"base_value": raw.BaseValue,
+	})
+}
+
 // WriteJSON is a shared helper for JSON responses within this package.
 func WriteJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
