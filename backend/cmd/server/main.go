@@ -204,6 +204,34 @@ func main() {
 		writeJSON(w, map[string]any{"success": true})
 	})
 
+	mux.HandleFunc("/api/positions/history", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		all, err := database.ListAllPositions()
+		if err != nil {
+			logger.Error("list all positions failed", zap.Error(err))
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"positions": all})
+	})
+
+	mux.HandleFunc("/api/portfolio/summary", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		totalPnl, err := database.GetAllTimePnl()
+		if err != nil {
+			logger.Error("get all-time pnl failed", zap.Error(err))
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"all_time_realized_pnl": totalPnl})
+	})
+
 	// ─── Trading limits ───────────────────────────────────────────────────────
 	mux.HandleFunc("/api/trading/limits", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

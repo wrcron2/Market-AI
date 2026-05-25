@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
 import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle } from 'lucide-react'
-import type { AlpacaAccount, AlpacaPosition, TradingLimits, Position } from '../types'
+import {
+  ResponsiveContainer,
+  LineChart, Line,
+  BarChart, Bar,
+  XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine,
+} from 'recharts'
+import type { AlpacaAccount, AlpacaPosition, TradingLimits, Position, PortfolioSummary } from '../types'
 
 const REFRESH_MS = 30_000
 
@@ -9,31 +15,45 @@ interface Props {
   onClearAlert: () => void
 }
 
+function fmtDate(unixMs: number): string {
+  return new Date(unixMs).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
+function fmtShortDate(unixMs: number): string {
+  return new Date(unixMs).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
 export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
-  const [account,    setAccount]    = useState<AlpacaAccount | null>(null)
-  const [positions,  setPositions]  = useState<AlpacaPosition[]>([])
-  const [dbPositions, setDbPositions] = useState<Position[]>([])
-  const [limits,     setLimits]     = useState<TradingLimits | null>(null)
-  const [loading,    setLoading]    = useState(true)
-  const [error,      setError]      = useState<string | null>(null)
-  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [account,      setAccount]      = useState<AlpacaAccount | null>(null)
+  const [positions,    setPositions]    = useState<AlpacaPosition[]>([])
+  const [dbPositions,  setDbPositions]  = useState<Position[]>([])
+  const [allPositions, setAllPositions] = useState<Position[]>([])
+  const [limits,       setLimits]       = useState<TradingLimits | null>(null)
+  const [summary,      setSummary]      = useState<PortfolioSummary | null>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [lastRefresh,  setLastRefresh]  = useState<Date | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [acctRes, posRes, dbPosRes, limRes] = await Promise.all([
+      const [acctRes, posRes, dbPosRes, limRes, histRes, sumRes] = await Promise.all([
         fetch('/api/alpaca/account'),
         fetch('/api/alpaca/positions'),
         fetch('/api/positions'),
         fetch('/api/trading/limits'),
+        fetch('/api/positions/history'),
+        fetch('/api/portfolio/summary'),
       ])
 
-      if (acctRes.ok) setAccount(await acctRes.json())
-      if (posRes.ok)  setPositions(await posRes.json())
-      if (dbPosRes.ok) {
-        const data = await dbPosRes.json()
-        setDbPositions(data.positions ?? [])
-      }
-      if (limRes.ok)  setLimits(await limRes.json())
+      if (acctRes.ok)   setAccount(await acctRes.json())
+      if (posRes.ok)    setPositions(await posRes.json())
+      if (dbPosRes.ok)  setDbPositions((await dbPosRes.json()).positions ?? [])
+      if (limRes.ok)    setLimits(await limRes.json())
+      if (histRes.ok)   setAllPositions((await histRes.json()).positions ?? [])
+      if (sumRes.ok)    setSummary(await sumRes.json())
       setError(null)
       setLastRefresh(new Date())
     } catch (err) {
@@ -54,6 +74,36 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
   const dayPnl       = equity - lastEquity
   const buyingPower  = parseFloat(account?.buying_power ?? '0')
   const portfolioVal = parseFloat(account?.portfolio_value ?? '0')
+  const allTimePnl   = summary?.all_time_realized_pnl ?? 0
+
+  // Build symbol → entry_time map from all positions for the "Bought" column
+  const symbolEntryTime: Record<string, number> = {}
+  for (const p of allPositions) {
+    if (p.status === 'OPEN' && !symbolEntryTime[p.symbol]) {
+      symbolEntryTime[p.symbol] = p.entry_time
+    }
+  }
+
+  // Chart data: closed positions sorted by exit_time for cumulative P&L line
+  const closedSorted = [...allPositions]
+    .filter(p => p.status === 'CLOSED' && p.exit_time != null)
+    .sort((a, b) => (a.exit_time ?? 0) - (b.exit_time ?? 0))
+
+  let cumulative = 0
+  const cumulativeData = closedSorted.map(p => {
+    cumulative += p.realized_pnl ?? 0
+    return {
+      date:       fmtShortDate(p.exit_time!),
+      cumPnl:     parseFloat(cumulative.toFixed(2)),
+      symbol:     p.symbol,
+    }
+  })
+
+  const tradeBarData = closedSorted.map(p => ({
+    name:  p.symbol,
+    pnl:   parseFloat((p.realized_pnl ?? 0).toFixed(2)),
+    date:  fmtShortDate(p.exit_time!),
+  }))
 
   if (loading) {
     return (
@@ -104,9 +154,14 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
         />
         <AccountStat label="Trades Today" value={String(limits?.trade_count ?? 0)} />
         <AccountStat
-          label="Realized P&L"
+          label="Realized P&L Today"
           value={`${(limits?.realized_pnl ?? 0) >= 0 ? '+' : ''}$${(limits?.realized_pnl ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           className={(limits?.realized_pnl ?? 0) >= 0 ? 'pnl-positive' : 'pnl-negative'}
+        />
+        <AccountStat
+          label="Total Earnings"
+          value={`${allTimePnl >= 0 ? '+' : ''}$${allTimePnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          className={allTimePnl >= 0 ? 'pnl-positive' : 'pnl-negative'}
         />
       </div>
 
@@ -135,6 +190,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                 <th>Symbol</th>
                 <th>Side</th>
                 <th>Qty</th>
+                <th>Bought</th>
                 <th>Entry</th>
                 <th>Current</th>
                 <th>Mkt Value</th>
@@ -144,17 +200,18 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
               </tr>
             </thead>
             <tbody>
-              {/* Filled positions from Alpaca live feed */}
               {positions.map((pos) => {
                 const plpc    = parseFloat(pos.unrealized_plpc) * 100
                 const pl      = parseFloat(pos.unrealized_pl)
                 const isLong  = pos.side === 'long'
                 const plColor = pl >= 0 ? 'pnl-positive' : 'pnl-negative'
+                const entryTs = symbolEntryTime[pos.symbol]
                 return (
                   <tr key={pos.symbol}>
                     <td className="pos-symbol">{pos.symbol}</td>
                     <td><span className={`direction-badge ${isLong ? 'buy' : 'sell'}`}>{isLong ? 'LONG' : 'SHORT'}</span></td>
                     <td>{parseFloat(pos.qty).toLocaleString()}</td>
+                    <td className="text-muted pos-date">{entryTs ? fmtDate(entryTs) : '—'}</td>
                     <td>${parseFloat(pos.avg_entry_price).toFixed(2)}</td>
                     <td>${parseFloat(pos.current_price).toFixed(2)}</td>
                     <td>${parseFloat(pos.market_value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
@@ -171,7 +228,6 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                   </tr>
                 )
               })}
-              {/* Pending positions: in our DB but not yet filled by Alpaca (market closed) */}
               {dbPositions
                 .filter(p => p.status === 'OPEN' && !positions.find(ap => ap.symbol === p.symbol))
                 .map((p) => (
@@ -179,12 +235,13 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                     <td className="pos-symbol">{p.symbol}</td>
                     <td><span className={`direction-badge ${p.direction === 'LONG' ? 'buy' : 'sell'}`}>{p.direction}</span></td>
                     <td>{p.quantity.toLocaleString()}</td>
+                    <td className="text-muted pos-date">{p.entry_time ? fmtDate(p.entry_time) : '—'}</td>
                     <td className="text-muted">{p.entry_price > 0 ? `$${p.entry_price.toFixed(2)}` : '—'}</td>
                     <td className="text-muted">—</td>
                     <td className="text-muted">—</td>
                     <td className="text-muted">—</td>
                     <td className="text-muted">—</td>
-                    <td><span className="close-reason-tag pending-tag">⏳ pending fill</span></td>
+                    <td><span className="close-reason-tag pending-tag">pending fill</span></td>
                   </tr>
                 ))}
             </tbody>
@@ -205,6 +262,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                 <tr>
                   <th>Symbol</th>
                   <th>Side</th>
+                  <th>Bought</th>
                   <th>Entry</th>
                   <th>Exit</th>
                   <th>Realized P&L</th>
@@ -224,6 +282,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                             {p.direction}
                           </span>
                         </td>
+                        <td className="text-muted pos-date">{p.entry_time ? fmtDate(p.entry_time) : '—'}</td>
                         <td>${p.entry_price.toFixed(2)}</td>
                         <td>{p.exit_price != null ? `$${p.exit_price.toFixed(2)}` : '—'}</td>
                         <td className={pl >= 0 ? 'pnl-positive' : 'pnl-negative'}>
@@ -237,6 +296,65 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
             </table>
           </div>
         </>
+      )}
+
+      {/* Performance charts (only when there's closed trade history) */}
+      {closedSorted.length > 0 && (
+        <div className="charts-section">
+          <h3 className="alpaca-section-title" style={{ marginTop: '32px' }}>Performance</h3>
+
+          <div className="charts-row">
+            {/* Cumulative P&L over time */}
+            <div className="chart-card">
+              <div className="chart-title">Cumulative P&L</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={cumulativeData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#8b8fa8' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#8b8fa8' }} tickFormatter={v => `$${v}`} width={56} />
+                  <Tooltip
+                    contentStyle={{ background: '#1a1f35', border: '1px solid #2a3050', borderRadius: 8 }}
+                    labelStyle={{ color: '#c5c9e0' }}
+                    formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Cum. P&L']}
+                  />
+                  <ReferenceLine y={0} stroke="#4a5080" />
+                  <Line
+                    type="monotone"
+                    dataKey="cumPnl"
+                    stroke="#6c63ff"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#6c63ff' }}
+                    activeDot={{ r: 5 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* P&L per trade */}
+            <div className="chart-card">
+              <div className="chart-title">P&L per Trade</div>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={tradeBarData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8b8fa8' }} />
+                  <YAxis tick={{ fontSize: 11, fill: '#8b8fa8' }} tickFormatter={v => `$${v}`} width={56} />
+                  <Tooltip
+                    contentStyle={{ background: '#1a1f35', border: '1px solid #2a3050', borderRadius: 8 }}
+                    labelStyle={{ color: '#c5c9e0' }}
+                    formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Realized P&L']}
+                  />
+                  <ReferenceLine y={0} stroke="#4a5080" />
+                  <Bar
+                    dataKey="pnl"
+                    radius={[4, 4, 0, 0]}
+                    fill="#6c63ff"
+                    label={false}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

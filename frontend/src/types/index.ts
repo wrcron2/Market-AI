@@ -105,3 +105,7 @@ export interface GreenLightResponse {
   signal_id: string
   message?: string
 }
+
+export interface PortfolioSummary {
+  all_time_realized_pnl: number
+}

@@ -548,3 +548,13 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
 .btn-switch { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .btn-switch:hover:not(:disabled) { background: rgba(99,102,241,0.25); }
 .btn-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Portfolio charts */
+.charts-section { margin-top: 8px; }
+.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+@media (max-width: 900px) { .charts-row { grid-template-columns: 1fr; } }
+.chart-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 12px 12px; }
+.chart-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 0.02em; }
+
+/* Bought date column */
+.pos-date { font-size: 12px; white-space: nowrap; }

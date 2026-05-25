@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -171,6 +172,26 @@ func (h *Handler) submitToIBKR(order *db.StagedOrder) {
 
 	note := "Alpaca paper order " + result.ID
 	_ = h.db.TransitionStatus(order.ID, db.StatusExecuted, "alpaca", note)
+
+	// Record in positions table for history/charting.
+	direction := "LONG"
+	if order.Direction == "SELL" || order.Direction == "SHORT" || order.Direction == "COVER" {
+		direction = "SHORT"
+	}
+	pos := &db.Position{
+		ID:            order.ID,
+		Symbol:        order.Symbol,
+		Direction:     direction,
+		Quantity:      order.Quantity,
+		EntryPrice:    order.LimitPrice, // placeholder; brain syncs fill price later
+		EntryTime:     time.Now().UnixMilli(),
+		Confidence:    order.Confidence,
+		AlpacaOrderID: result.ID,
+	}
+	if err := h.db.OpenPosition(pos); err != nil {
+		h.log.Warn("failed to record position in DB", zap.String("signal_id", order.ID), zap.Error(err))
+	}
+
 	h.hub.Broadcast("order_executed", map[string]any{
 		"signal_id":       order.ID,
 		"alpaca_order_id": result.ID,

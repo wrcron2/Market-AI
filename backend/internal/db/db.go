@@ -436,6 +436,38 @@ func (d *DB) ListOpenPositions() ([]*Position, error) {
 	return out, nil
 }
 
+// ListAllPositions returns all positions (OPEN + CLOSED) ordered by entry_time DESC.
+func (d *DB) ListAllPositions() ([]*Position, error) {
+	rows, err := d.Query(`
+		SELECT id, symbol, direction, quantity, entry_price, entry_time, confidence,
+		       COALESCE(alpaca_order_id,''), status,
+		       exit_price, exit_time, realized_pnl,
+		       stop_loss_price, take_profit_price, COALESCE(close_reason,''),
+		       created_at, updated_at
+		FROM positions ORDER BY entry_time DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*Position
+	for rows.Next() {
+		p, err := scanPosition(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// GetAllTimePnl returns the sum of realized_pnl across all closed positions.
+func (d *DB) GetAllTimePnl() (float64, error) {
+	var total float64
+	row := d.QueryRow(`SELECT COALESCE(SUM(realized_pnl), 0) FROM positions WHERE status = 'CLOSED'`)
+	err := row.Scan(&total)
+	return total, err
+}
+
 // SyncFillPrice updates entry_price once an Alpaca market order actually fills.
 func (d *DB) SyncFillPrice(id string, fillPrice float64) error {
 	_, err := d.Exec(
