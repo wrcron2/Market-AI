@@ -81,6 +81,21 @@ func main() {
 		writeJSON(w, stats)
 	})
 
+	// Recent orders across all statuses — used to seed the signal feed on page load
+	mux.HandleFunc("/api/orders/recent", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		orders, err := database.ListRecentOrders(limit)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"orders": orders})
+	})
+
 	mux.HandleFunc("/api/orders/pending", glHandler.ListPending)
 	mux.HandleFunc("/api/orders/approve", glHandler.Approve)
 	mux.HandleFunc("/api/orders/reject", glHandler.Reject)
@@ -303,6 +318,90 @@ func main() {
 	// ─── Alpaca proxy (read-only, for dashboard) ──────────────────────────────
 	mux.HandleFunc("/api/alpaca/account",   alpacaProxy.Account)
 	mux.HandleFunc("/api/alpaca/positions", alpacaProxy.Positions)
+
+	// ─── Close an open position via Alpaca ────────────────────────────────────
+	mux.HandleFunc("/api/alpaca/positions/{symbol}/close", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		symbol := r.PathValue("symbol")
+		result, err := alpacaProxy.ClosePosition(symbol)
+		if err != nil {
+			logger.Error("close position failed", zap.String("symbol", symbol), zap.Error(err))
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Look up our DB position for this symbol and record the close
+		pos, dbErr := database.GetOpenPositionBySymbol(symbol)
+		if dbErr == nil && pos != nil {
+			exitPrice := result.FillPrice
+			realizedPnl := (exitPrice - pos.EntryPrice) * pos.Quantity
+			if pos.Direction == "SHORT" {
+				realizedPnl = -realizedPnl
+			}
+			if closeErr := database.ClosePosition(pos.ID, exitPrice, realizedPnl, "manual-sell"); closeErr != nil {
+				logger.Warn("db close position failed", zap.Error(closeErr))
+			}
+			dailyLimit, _ := strconv.ParseFloat(getEnv("DAILY_LOSS_LIMIT_USD", "1000.0"), 64)
+			_ = database.UpdateTodayPnl(realizedPnl, dailyLimit)
+			hub.Broadcast("position_closed", map[string]any{
+				"id": pos.ID, "symbol": symbol, "realized_pnl": realizedPnl, "reason": "manual-sell",
+			})
+		}
+		writeJSON(w, map[string]any{"success": true, "symbol": symbol, "alpaca_order_id": result.ID})
+	})
+
+	// ─── Failed orders ────────────────────────────────────────────────────────
+	mux.HandleFunc("/api/orders/failed", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		orders, err := database.ListFailedOrders()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"orders": orders})
+	})
+
+	// ─── Retry a failed order ─────────────────────────────────────────────────
+	mux.HandleFunc("/api/orders/retry", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct{ SignalID string `json:"signal_id"` }
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		order, err := database.GetOrder(req.SignalID)
+		if err != nil {
+			http.Error(w, "order not found", http.StatusNotFound)
+			return
+		}
+		if err := database.ResetToRetry(req.SignalID); err != nil {
+			http.Error(w, "reset failed", http.StatusInternalServerError)
+			return
+		}
+		hub.Broadcast("order_staged", order)
+		go func() {
+			result, err := alpacaProxy.PlaceOrder(order.Symbol, order.Direction, order.Quantity)
+			if err != nil {
+				_ = database.TransitionStatus(req.SignalID, db.StatusFailed, "retry", err.Error())
+				hub.Broadcast("order_failed", map[string]string{"signal_id": req.SignalID, "error": err.Error()})
+				return
+			}
+			_ = database.TransitionStatus(req.SignalID, db.StatusApproved, "retry", "retried")
+			_ = database.TransitionStatus(req.SignalID, db.StatusExecuted, "retry", "Alpaca order "+result.ID)
+			hub.Broadcast("order_executed", map[string]any{
+				"signal_id": req.SignalID, "alpaca_order_id": result.ID, "retried": true,
+			})
+		}()
+		writeJSON(w, map[string]any{"success": true, "signal_id": req.SignalID})
+	})
 
 	// ─── Version management ────────────────────────────────────────────────────
 	mux.HandleFunc("/api/versions",        versions.List)

@@ -89,6 +89,33 @@ func (d *DB) StageOrder(o *StagedOrder) error {
 	return d.appendAuditLog(o.ID, "", string(StatusPending), "system", "Order staged by AI brain")
 }
 
+// ListRecentOrders returns the most recent N orders across all statuses, newest first.
+func (d *DB) ListRecentOrders(limit int) ([]*StagedOrder, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := d.Query(`
+		SELECT id, symbol, direction, quantity, limit_price, confidence,
+		       reasoning, strategy_name, model_used, status,
+		       COALESCE(trader_comment,''), ibkr_order_id, created_at, updated_at
+		FROM staged_orders
+		ORDER BY created_at DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*StagedOrder
+	for rows.Next() {
+		o, err := scanOrder(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, nil
+}
+
 // GetOrder fetches a single order by ID.
 func (d *DB) GetOrder(id string) (*StagedOrder, error) {
 	row := d.QueryRow(`
@@ -434,6 +461,56 @@ func (d *DB) ListOpenPositions() ([]*Position, error) {
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// GetOpenPositionBySymbol returns the most recent OPEN position for a given symbol.
+func (d *DB) GetOpenPositionBySymbol(symbol string) (*Position, error) {
+	row := d.QueryRow(`
+		SELECT id, symbol, direction, quantity, entry_price, entry_time, confidence,
+		       COALESCE(alpaca_order_id,''), status,
+		       exit_price, exit_time, realized_pnl,
+		       stop_loss_price, take_profit_price, COALESCE(close_reason,''),
+		       created_at, updated_at
+		FROM positions WHERE status = 'OPEN' AND symbol = ? ORDER BY entry_time DESC LIMIT 1`, symbol)
+	return scanPosition(row)
+}
+
+// ListFailedOrders returns all staged orders with status FAILED, newest first.
+func (d *DB) ListFailedOrders() ([]*StagedOrder, error) {
+	rows, err := d.Query(`
+		SELECT id, symbol, direction, quantity, limit_price, confidence,
+		       reasoning, strategy_name, model_used, status,
+		       COALESCE(trader_comment,''), COALESCE(ibkr_order_id,0),
+		       created_at, updated_at
+		FROM staged_orders WHERE status = 'FAILED' ORDER BY updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*StagedOrder
+	for rows.Next() {
+		o := &StagedOrder{}
+		var status string
+		err := rows.Scan(
+			&o.ID, &o.Symbol, &o.Direction, &o.Quantity, &o.LimitPrice, &o.Confidence,
+			&o.Reasoning, &o.StrategyName, &o.ModelUsed, &status,
+			&o.TraderComment, &o.IBKROrderID, &o.CreatedAt, &o.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		o.Status = OrderStatus(status)
+		out = append(out, o)
+	}
+	return out, nil
+}
+
+// ResetToRetry transitions a FAILED order back to PENDING so it can be re-approved.
+func (d *DB) ResetToRetry(id string) error {
+	_, err := d.Exec(`
+		UPDATE staged_orders SET status = 'PENDING', trader_comment = 'retried', updated_at = ?
+		WHERE id = ? AND status = 'FAILED'`, nowMs(), id)
+	return err
 }
 
 // ListAllPositions returns all positions (OPEN + CLOSED) ordered by entry_time DESC.

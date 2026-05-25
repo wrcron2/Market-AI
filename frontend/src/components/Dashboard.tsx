@@ -120,8 +120,28 @@ export function Dashboard() {
       } catch { /* backend not yet up */ }
     }
 
+    // Seed the signal feed from DB so history survives page refreshes
+    const loadRecentFeed = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/orders/recent?limit=100`)
+        if (!res.ok) return
+        const data = await res.json()
+        const orders: StagedOrder[] = data.orders ?? []
+        const events: FeedEvent[] = orders.map(o => {
+          const type: FeedEvent['type'] =
+            o.status === 'EXECUTED' ? 'executed' :
+            o.status === 'APPROVED' ? 'approved' :
+            o.status === 'REJECTED' ? 'rejected'  :
+            o.status === 'FAILED'   ? 'failed'    : 'staged'
+          return { id: o.id, type, order: o, timestamp: o.updated_at }
+        })
+        setFeedEvents(events)
+      } catch { /* backend not yet up */ }
+    }
+
     loadPending()
     loadStats()
+    loadRecentFeed()
     const interval = setInterval(loadPending, 30_000)
     return () => clearInterval(interval)
   }, [])

@@ -558,3 +558,16 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
 
 /* Bought date column */
 .pos-date { font-size: 12px; white-space: nowrap; }
+
+/* Sell button */
+.btn-sell { background: rgba(239,68,68,0.15); color: #f87171; border: 1px solid rgba(239,68,68,0.3); padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.btn-sell:hover:not(:disabled) { background: rgba(239,68,68,0.28); }
+.btn-sell:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Retry button */
+.btn-retry { background: rgba(234,179,8,0.15); color: var(--yellow); border: 1px solid rgba(234,179,8,0.3); padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.btn-retry:hover:not(:disabled) { background: rgba(234,179,8,0.25); }
+.btn-retry:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Failed order row */
+.failed-row td { opacity: 0.9; }
