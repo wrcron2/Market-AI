@@ -537,10 +537,13 @@ func (d *DB) ListAllPositions() ([]*Position, error) {
 	return out, nil
 }
 
-// GetAllTimePnl returns the sum of realized_pnl across all closed positions.
+// GetAllTimePnl returns the sum of realized_pnl across all trading days.
+// Uses trading_limits (updated on every close, regardless of DB position record)
+// rather than the positions table, which may be missing rows for positions placed
+// before DB recording was deployed.
 func (d *DB) GetAllTimePnl() (float64, error) {
 	var total float64
-	row := d.QueryRow(`SELECT COALESCE(SUM(realized_pnl), 0) FROM positions WHERE status = 'CLOSED'`)
+	row := d.QueryRow(`SELECT COALESCE(SUM(realized_pnl), 0) FROM trading_limits`)
 	err := row.Scan(&total)
 	return total, err
 }
