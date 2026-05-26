@@ -30,12 +30,20 @@ APP_VERSION="$VERSION" sudo -E docker-compose up -d
 echo "$VERSION  $(date '+%Y-%m-%d %H:%M')  $(git rev-parse --short HEAD 2>/dev/null || echo 'no-git')" >> "$VERSIONS_DIR/history"
 echo "$VERSION" > "$VERSIONS_DIR/current"
 
-# Auto-populate version description from the latest git commit message
+# Auto-populate notes for ALL versions that don't have one yet (backfill from git SHA)
 mkdir -p "$VERSIONS_DIR/notes"
-NOTE_FILE="$VERSIONS_DIR/notes/$VERSION"
-if [ ! -f "$NOTE_FILE" ]; then
-  git log -1 --pretty=format:"%s" 2>/dev/null > "$NOTE_FILE" || echo "Deploy $VERSION" > "$NOTE_FILE"
-fi
+while IFS= read -r line; do
+  vtag=$(echo "$line" | awk '{print $1}')
+  vsha=$(echo "$line" | awk '{print $4}')
+  nfile="$VERSIONS_DIR/notes/$vtag"
+  if [ ! -f "$nfile" ] || [ ! -s "$nfile" ]; then
+    if [ -n "$vsha" ] && git rev-parse --verify "$vsha" &>/dev/null 2>&1; then
+      git log -1 --pretty=format:"%s" "$vsha" 2>/dev/null > "$nfile" || echo "Deploy $vtag" > "$nfile"
+    else
+      echo "Deploy $vtag" > "$nfile"
+    fi
+  fi
+done < "$VERSIONS_DIR/history"
 
 echo ""
 echo "==> Deployed: $VERSION"
