@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Handler proxies dashboard requests to the Alpaca paper API.
@@ -296,6 +297,100 @@ func (h *Handler) PortfolioHistory(w http.ResponseWriter, r *http.Request) {
 
 	wg.Wait()
 	WriteJSON(w, map[string]any{"periods": results})
+}
+
+// SyncedPosition is an open Alpaca position enriched with a fill timestamp.
+type SyncedPosition struct {
+	Symbol        string  `json:"symbol"`
+	Side          string  `json:"side"`
+	Qty           float64 `json:"qty"`
+	AvgEntryPrice float64 `json:"avg_entry_price"`
+	EntryTimeMs   int64   `json:"entry_time_ms"` // Unix ms from fill activity; 0 if unknown
+	AlpacaOrderID string  `json:"alpaca_order_id"`
+}
+
+// FetchOpenPositionsWithFills returns all open Alpaca positions enriched with
+// their fill timestamp from the account activities API.
+func (h *Handler) FetchOpenPositionsWithFills() ([]SyncedPosition, error) {
+	if h.apiKey == "" || h.secretKey == "" {
+		return nil, fmt.Errorf("alpaca credentials not configured")
+	}
+
+	// 1. Fetch open positions
+	posReq, _ := http.NewRequest(http.MethodGet, h.baseURL+"/v2/positions", nil)
+	posReq.Header.Set("APCA-API-KEY-ID", h.apiKey)
+	posReq.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+	posResp, err := h.client.Do(posReq)
+	if err != nil {
+		return nil, fmt.Errorf("alpaca unreachable: %w", err)
+	}
+	defer posResp.Body.Close()
+	posBody, _ := io.ReadAll(posResp.Body)
+
+	var rawPositions []map[string]any
+	if err := json.Unmarshal(posBody, &rawPositions); err != nil || len(rawPositions) == 0 {
+		return nil, nil
+	}
+
+	// 2. Fetch fill activities (up to 200 most recent) for timestamps
+	actURL := h.baseURL + "/v2/account/activities?activity_type=FILL&page_size=200"
+	actReq, _ := http.NewRequest(http.MethodGet, actURL, nil)
+	actReq.Header.Set("APCA-API-KEY-ID", h.apiKey)
+	actReq.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+	actResp, err := h.client.Do(actReq)
+	if err != nil {
+		return nil, fmt.Errorf("alpaca activities unreachable: %w", err)
+	}
+	defer actResp.Body.Close()
+	actBody, _ := io.ReadAll(actResp.Body)
+
+	var activities []map[string]any
+	_ = json.Unmarshal(actBody, &activities)
+
+	// Build symbol → earliest fill timestamp map (oldest fill = position open)
+	fillTimes := map[string]int64{}
+	for _, act := range activities {
+		sym, _ := act["symbol"].(string)
+		side, _ := act["side"].(string)
+		if sym == "" || strings.ToLower(side) != "buy" {
+			continue
+		}
+		ts, _ := act["transaction_time"].(string)
+		if ts == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339Nano, ts)
+		if err != nil {
+			t, err = time.Parse("2006-01-02T15:04:05Z", ts)
+			if err != nil {
+				continue
+			}
+		}
+		ms := t.UnixMilli()
+		if existing, ok := fillTimes[sym]; !ok || ms < existing {
+			fillTimes[sym] = ms
+		}
+	}
+
+	// 3. Merge
+	var result []SyncedPosition
+	for _, p := range rawPositions {
+		sym, _ := p["symbol"].(string)
+		side, _ := p["side"].(string)
+		var qty, entry float64
+		fmt.Sscanf(fmt.Sprintf("%v", p["qty"]), "%f", &qty)
+		fmt.Sscanf(fmt.Sprintf("%v", p["avg_entry_price"]), "%f", &entry)
+		orderID, _ := p["asset_id"].(string)
+		result = append(result, SyncedPosition{
+			Symbol:        sym,
+			Side:          side,
+			Qty:           qty,
+			AvgEntryPrice: entry,
+			EntryTimeMs:   fillTimes[sym],
+			AlpacaOrderID: orderID,
+		})
+	}
+	return result, nil
 }
 
 // EquityPoint is one data point in the portfolio equity curve.

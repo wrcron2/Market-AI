@@ -315,6 +315,35 @@ func main() {
 		writeJSON(w, map[string]any{"success": true})
 	})
 
+	// ─── Sync open Alpaca positions to DB on startup ─────────────────────────
+	go func() {
+		synced, err := alpacaProxy.FetchOpenPositionsWithFills()
+		if err != nil {
+			logger.Warn("startup position sync failed", zap.Error(err))
+			return
+		}
+		for _, sp := range synced {
+			existing, _ := database.GetOpenPositionBySymbol(sp.Symbol)
+			if existing != nil {
+				continue // already in DB
+			}
+			side := "LONG"
+			if sp.Side == "short" {
+				side = "SHORT"
+			}
+			_ = database.OpenPosition(&db.Position{
+				ID:            "alpaca-" + sp.Symbol,
+				Symbol:        sp.Symbol,
+				Direction:     side,
+				Quantity:      sp.Qty,
+				EntryPrice:    sp.AvgEntryPrice,
+				EntryTime:     sp.EntryTimeMs,
+				AlpacaOrderID: sp.AlpacaOrderID,
+			})
+		}
+		logger.Info("startup position sync complete", zap.Int("synced", len(synced)))
+	}()
+
 	// ─── Alpaca proxy (read-only, for dashboard) ──────────────────────────────
 	mux.HandleFunc("/api/alpaca/account",           alpacaProxy.Account)
 	mux.HandleFunc("/api/alpaca/positions",         alpacaProxy.Positions)

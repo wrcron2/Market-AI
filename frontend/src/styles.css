@@ -588,8 +588,7 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
 
 /* Portfolio charts */
 .charts-section { margin-top: 8px; }
-.charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
-@media (max-width: 900px) { .charts-row { grid-template-columns: 1fr; } }
+.charts-row { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 12px; }
 .chart-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 12px 12px; }
 .chart-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; letter-spacing: 0.02em; }
 
