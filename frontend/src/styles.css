@@ -504,6 +504,65 @@ button { cursor: pointer; border: none; font-family: inherit; font-size: inherit
   font-size: 11px; color: var(--text-muted); margin-top: 2px;
 }
 
+/* ─── Today's Trades ──────────────────────────────────────────────────────── */
+.todays-trades { display: flex; flex-direction: column; gap: 10px; }
+
+.todays-trades-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.todays-trades-total {
+  font-size: 15px; font-weight: 700;
+}
+
+.todays-trades-list { display: flex; flex-direction: column; gap: 8px; }
+
+.trade-card {
+  display: flex; align-items: center; gap: 16px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: var(--radius); padding: 14px 18px;
+}
+.trade-open   { border-left-color: #3b82f6; }
+.trade-closed { border-left-color: var(--text-muted); opacity: 0.85; }
+
+.trade-card-left { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+
+.trade-symbol-row { display: flex; align-items: center; gap: 8px; }
+.trade-symbol { font-size: 16px; font-weight: 700; }
+
+.trade-status-pill {
+  font-size: 10px; font-weight: 700; padding: 1px 7px;
+  border-radius: 999px; text-transform: uppercase; letter-spacing: 0.04em;
+}
+.pill-open   { background: rgba(59,130,246,0.15); color: #3b82f6; }
+.pill-closed { background: rgba(100,116,139,0.15); color: var(--text-muted); }
+
+.trade-meta {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-muted);
+}
+.trade-qty { font-weight: 500; color: var(--text-muted); }
+
+.trade-card-prices {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; white-space: nowrap;
+}
+.trade-price-row { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.trade-price-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.trade-price-val { font-weight: 600; }
+.trade-price-arrow { color: var(--text-muted); font-size: 14px; }
+
+.trade-card-pnl {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  min-width: 90px;
+}
+.trade-pnl-amount { font-size: 17px; font-weight: 700; }
+.trade-pnl-pct { font-size: 12px; font-weight: 600; }
+.trade-conf { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.text-green { color: var(--green); }
+.text-red   { color: var(--red); }
+
 /* Refresh row */
 .alpaca-refresh-row {
   display: flex; align-items: center; gap: 8px;

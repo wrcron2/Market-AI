@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { TrendingUp, TrendingDown, RefreshCw, AlertTriangle } from 'lucide-react'
 import { PerformanceHistory } from './PerformanceHistory'
+import { TodaysTrades } from './TodaysTrades'
 import {
   ResponsiveContainer,
   LineChart, Line,
@@ -203,6 +204,8 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
       </div>
 
       <PerformanceHistory />
+
+      <TodaysTrades positions={allPositions} alpacaPositions={positions} />
 
       <div className="alpaca-refresh-row">
         <RefreshCw size={11} />
