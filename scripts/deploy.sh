@@ -31,18 +31,26 @@ echo "$VERSION  $(date '+%Y-%m-%d %H:%M')  $(git rev-parse --short HEAD 2>/dev/n
 echo "$VERSION" > "$VERSIONS_DIR/current"
 
 # Auto-populate notes for ALL versions that don't have one yet (backfill from git SHA)
+# Re-deploys of the same SHA get "Re-deploy: <msg>" to avoid duplicate descriptions.
 mkdir -p "$VERSIONS_DIR/notes"
+declare -A _sha_first
 while IFS= read -r line; do
   vtag=$(echo "$line" | awk '{print $1}')
   vsha=$(echo "$line" | awk '{print $4}')
   nfile="$VERSIONS_DIR/notes/$vtag"
   if [ ! -f "$nfile" ] || [ ! -s "$nfile" ]; then
     if [ -n "$vsha" ] && git rev-parse --verify "$vsha" &>/dev/null 2>&1; then
-      git log -1 --pretty=format:"%s" "$vsha" 2>/dev/null > "$nfile" || echo "Deploy $vtag" > "$nfile"
+      msg=$(git log -1 --pretty=format:"%s" "$vsha" 2>/dev/null || echo "Deploy $vtag")
+      if [ -n "${_sha_first[$vsha]:-}" ]; then
+        echo "Re-deploy: $msg" > "$nfile"
+      else
+        echo "$msg" > "$nfile"
+      fi
     else
       echo "Deploy $vtag" > "$nfile"
     fi
   fi
+  [ -n "${vsha:-}" ] && _sha_first[$vsha]="${_sha_first[$vsha]:-$vtag}"
 done < "$VERSIONS_DIR/history"
 
 echo ""
