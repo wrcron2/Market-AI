@@ -332,20 +332,38 @@ func (h *Handler) FetchOpenPositionsWithFills() ([]SyncedPosition, error) {
 		return nil, nil
 	}
 
-	// 2. Fetch fill activities (up to 200 most recent) for timestamps
-	actURL := h.baseURL + "/v2/account/activities?activity_type=FILL&page_size=200"
-	actReq, _ := http.NewRequest(http.MethodGet, actURL, nil)
-	actReq.Header.Set("APCA-API-KEY-ID", h.apiKey)
-	actReq.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
-	actResp, err := h.client.Do(actReq)
-	if err != nil {
-		return nil, fmt.Errorf("alpaca activities unreachable: %w", err)
-	}
-	defer actResp.Body.Close()
-	actBody, _ := io.ReadAll(actResp.Body)
-
+	// 2. Fetch fill activities (paginated, up to 500) for timestamps
 	var activities []map[string]any
-	_ = json.Unmarshal(actBody, &activities)
+	pageToken := ""
+	for page := 0; page < 5; page++ {
+		actURL := h.baseURL + "/v2/account/activities?activity_type=FILL&page_size=100&direction=desc"
+		if pageToken != "" {
+			actURL += "&page_token=" + pageToken
+		}
+		actReq, _ := http.NewRequest(http.MethodGet, actURL, nil)
+		actReq.Header.Set("APCA-API-KEY-ID", h.apiKey)
+		actReq.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+		actResp, err := h.client.Do(actReq)
+		if err != nil {
+			break
+		}
+		actBody, _ := io.ReadAll(actResp.Body)
+		actResp.Body.Close()
+		var page []map[string]any
+		if err := json.Unmarshal(actBody, &page); err != nil || len(page) == 0 {
+			break
+		}
+		activities = append(activities, page...)
+		if len(page) < 100 {
+			break
+		}
+		// Next page token is the ID of the last activity
+		lastID, _ := page[len(page)-1]["id"].(string)
+		if lastID == "" {
+			break
+		}
+		pageToken = lastID
+	}
 
 	// Build symbol → earliest fill timestamp map (oldest fill = position open)
 	fillTimes := map[string]int64{}

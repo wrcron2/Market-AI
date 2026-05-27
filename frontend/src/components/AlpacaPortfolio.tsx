@@ -374,9 +374,18 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8b8fa8' }} />
                     <YAxis tick={{ fontSize: 11, fill: '#8b8fa8' }} tickFormatter={v => `$${v}`} width={60} />
                     <Tooltip
-                      contentStyle={{ background: '#1a1f35', border: '1px solid #2a3050', borderRadius: 8 }}
-                      labelStyle={{ color: '#c5c9e0' }}
-                      formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Unrealized P&L']}
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const val = payload[0]?.value as number
+                        const color = val >= 0 ? '#22c55e' : '#ef4444'
+                        return (
+                          <div style={{ background: '#1a1f35', border: `1px solid ${color}`, borderRadius: 8, padding: '8px 12px' }}>
+                            <div style={{ color: '#8b8fa8', fontSize: 11, marginBottom: 4 }}>{label}</div>
+                            <div style={{ color, fontWeight: 700, fontSize: 14 }}>{val >= 0 ? '+' : ''}${val.toFixed(2)}</div>
+                            <div style={{ color: '#555b7a', fontSize: 10, marginTop: 2 }}>Unrealized P&amp;L</div>
+                          </div>
+                        )
+                      }}
                     />
                     <ReferenceLine y={0} stroke="#4a5080" />
                     <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
@@ -399,9 +408,18 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                     <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#8b8fa8' }} />
                     <YAxis tick={{ fontSize: 11, fill: '#8b8fa8' }} tickFormatter={v => `$${v}`} width={60} />
                     <Tooltip
-                      contentStyle={{ background: '#1a1f35', border: '1px solid #2a3050', borderRadius: 8 }}
-                      labelStyle={{ color: '#c5c9e0' }}
-                      formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Cum. P&L']}
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const val = payload[0]?.value as number
+                        const color = val >= 0 ? '#22c55e' : '#ef4444'
+                        return (
+                          <div style={{ background: '#1a1f35', border: `1px solid ${color}`, borderRadius: 8, padding: '8px 12px' }}>
+                            <div style={{ color: '#8b8fa8', fontSize: 11, marginBottom: 4 }}>{label}</div>
+                            <div style={{ color, fontWeight: 700, fontSize: 14 }}>{val >= 0 ? '+' : ''}${val.toFixed(2)}</div>
+                            <div style={{ color: '#555b7a', fontSize: 10, marginTop: 2 }}>Cumulative P&amp;L</div>
+                          </div>
+                        )
+                      }}
                     />
                     <ReferenceLine y={0} stroke="#4a5080" />
                     <Line type="monotone" dataKey="cumPnl" stroke="#6c63ff" strokeWidth={2} dot={{ r: 3, fill: '#6c63ff' }} activeDot={{ r: 5 }} />
@@ -420,9 +438,18 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                     <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#8b8fa8' }} />
                     <YAxis tick={{ fontSize: 11, fill: '#8b8fa8' }} tickFormatter={v => `$${v}`} width={60} />
                     <Tooltip
-                      contentStyle={{ background: '#1a1f35', border: '1px solid #2a3050', borderRadius: 8 }}
-                      labelStyle={{ color: '#c5c9e0' }}
-                      formatter={(v) => [`$${Number(v).toFixed(2)}`, 'Realized P&L']}
+                      content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null
+                        const val = payload[0]?.value as number
+                        const color = val >= 0 ? '#22c55e' : '#ef4444'
+                        return (
+                          <div style={{ background: '#1a1f35', border: `1px solid ${color}`, borderRadius: 8, padding: '8px 12px' }}>
+                            <div style={{ color: '#8b8fa8', fontSize: 11, marginBottom: 4 }}>{label}</div>
+                            <div style={{ color, fontWeight: 700, fontSize: 14 }}>{val >= 0 ? '+' : ''}${val.toFixed(2)}</div>
+                            <div style={{ color: '#555b7a', fontSize: 10, marginTop: 2 }}>Realized P&amp;L</div>
+                          </div>
+                        )
+                      }}
                     />
                     <ReferenceLine y={0} stroke="#4a5080" />
                     <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
