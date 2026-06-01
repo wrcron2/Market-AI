@@ -67,6 +67,10 @@ func main() {
 	var autoExMu   sync.RWMutex
 	autoExEnabled := false
 
+	// ─── LLM Provider toggle (in-memory, defaults to "aws") ──────────────────
+	var llmProviderMu sync.RWMutex
+	llmProvider := "aws"
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -456,6 +460,39 @@ func main() {
 		}
 		hub.Broadcast(msg.Type, msg.Payload)
 		writeJSON(w, map[string]any{"ok": true})
+	})
+
+	// ─── LLM Provider toggle (AWS Bedrock ↔ local Ollama) ────────────────────
+	mux.HandleFunc("/api/llm-provider", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			llmProviderMu.RLock()
+			provider := llmProvider
+			llmProviderMu.RUnlock()
+			writeJSON(w, map[string]any{"provider": provider})
+
+		case http.MethodPost:
+			var req struct {
+				Provider string `json:"provider"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+			if req.Provider != "aws" && req.Provider != "local" {
+				http.Error(w, `provider must be "aws" or "local"`, http.StatusBadRequest)
+				return
+			}
+			llmProviderMu.Lock()
+			llmProvider = req.Provider
+			llmProviderMu.Unlock()
+			hub.Broadcast("llm_provider_changed", map[string]any{"provider": req.Provider})
+			logger.Info("llm provider changed", zap.String("provider", req.Provider))
+			writeJSON(w, map[string]any{"provider": req.Provider})
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
 	})
 
 	// ─── Auto-Execute toggle ──────────────────────────────────────────────────

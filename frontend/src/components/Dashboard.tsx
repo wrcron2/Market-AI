@@ -4,6 +4,7 @@ import { SignalFeed, type FeedEvent } from './SignalFeed'
 import { PortfolioStats, type Stats } from './PortfolioStats'
 import { TradingModeToggle, useTradingMode } from './TradingModeToggle'
 import { AutoExecuteToggle, useAutoExecute } from './AutoExecuteToggle'
+import { LLMProviderToggle, useLLMProvider } from './LLMProviderToggle'
 import { AlpacaPortfolio } from './AlpacaPortfolio'
 import { VersionsPanel } from './VersionsPanel'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -16,8 +17,9 @@ const MAX_FEED_EVENTS = 100
 type Tab = 'signals' | 'portfolio' | 'versions'
 
 export function Dashboard() {
-  const { mode, changeMode }           = useTradingMode()
-  const { enabled: autoExec, toggle }  = useAutoExecute()
+  const { mode, changeMode }                      = useTradingMode()
+  const { enabled: autoExec, toggle }             = useAutoExecute()
+  const { provider: llmProvider, changeProvider } = useLLMProvider()
   const [activeTab, setActiveTab]      = useState<Tab>('signals')
   const [pendingOrders, setPendingOrders] = useState<StagedOrder[]>([])
   const [feedEvents, setFeedEvents]    = useState<FeedEvent[]>([])
@@ -93,6 +95,10 @@ export function Dashboard() {
         const { enabled } = payload as { enabled: boolean }
         // Sync toggle state from server push (another session may have toggled it)
         if (enabled !== autoExec) toggle(enabled)
+      },
+      llm_provider_changed: (payload) => {
+        const { provider } = payload as { provider: 'aws' | 'local' }
+        if (provider !== llmProvider) changeProvider(provider)
       },
       llm_unreachable: (payload) => {
         const { symbol, error } = payload as { symbol?: string; error?: string }
@@ -172,6 +178,7 @@ export function Dashboard() {
           <p className="tagline">Multi-Agent Trading · Green Light Gate Active</p>
         </div>
         <div className="header-right">
+          <LLMProviderToggle provider={llmProvider} onChange={changeProvider} />
           <TradingModeToggle mode={mode} onChange={changeMode} />
           <AutoExecuteToggle enabled={autoExec} onChange={toggle} />
         </div>

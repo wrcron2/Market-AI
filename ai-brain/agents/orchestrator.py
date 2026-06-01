@@ -77,6 +77,7 @@ class Orchestrator:
         If AUTO_EXECUTE is true (checked live per run), executes on Alpaca
         after a successful submission to the Go backend.
         """
+        self._sync_llm_provider()
         initial: AgentState = {
             "market_snapshot": market_snapshot,
             "signal": None,
@@ -265,6 +266,15 @@ class Orchestrator:
             return resp.json().get("enabled", False)
         except Exception:
             return False   # fail safe — never auto-execute if backend unreachable
+
+    def _sync_llm_provider(self) -> None:
+        """Sync the LLM provider toggle from the Go backend before each pipeline run."""
+        try:
+            resp = httpx.get(f"{self._backend_base}/api/llm-provider", timeout=3)
+            provider = resp.json().get("provider", "aws")
+            self.router.use_aws = (provider == "aws")
+        except Exception:
+            pass  # keep current setting if backend unreachable
 
     # ── Routing conditions ─────────────────────────────────────────────────────
 

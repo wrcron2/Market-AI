@@ -31,6 +31,7 @@ export type WsMessageType =
   | 'position_opened'
   | 'position_closed'
   | 'auto_execute_changed'
+  | 'llm_provider_changed'
   | 'llm_unreachable'
 
 export interface WsMessage {

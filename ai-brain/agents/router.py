@@ -44,6 +44,8 @@ class LLMRouter:
             "anthropic.claude-3-5-sonnet-20241022-v2:0",
         )
         self.aws_region = os.getenv("AWS_REGION", "us-east-1")
+        # Controlled by the dashboard toggle — set False to route all calls to Ollama
+        self.use_aws: bool = True
 
         # Cached clients — created once, reused across all calls
         self._ollama_client: ollama.Client = ollama.Client(host=self.ollama_host)
@@ -64,13 +66,13 @@ class LLMRouter:
         Run a chat completion and return the assistant text.
         model_override replaces the default Ollama model for this call only.
         """
-        if complexity == Complexity.HIGH:
+        if complexity == Complexity.HIGH and self.use_aws:
             return self._bedrock_complete(system, user, max_tokens, schema=schema)
         return self._ollama_complete(system, user, max_tokens, schema=schema, model_override=model_override)
 
     def model_tag(self, complexity: Complexity) -> str:
         """Return a short label for the model used (stored on the signal)."""
-        if complexity == Complexity.HIGH:
+        if complexity == Complexity.HIGH and self.use_aws:
             return f"bedrock/{self.bedrock_model.split('.')[-1]}"
         return f"ollama/{self.ollama_model}"
 
