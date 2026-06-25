@@ -1,13 +1,8 @@
 """
 router.py — LLM Router
 ======================
-Routes tasks to the appropriate LLM backend based on complexity:
-
-  LOW complexity  → Ollama (Qwen2.5-Coder 7B, local)
-                    Use for: signal generation, risk assessment, fast pattern matching.
-
-  HIGH complexity → AWS Bedrock (Claude Sonnet)
-                    Use for: bull-bear debate, nuanced market reasoning.
+ALL calls route to local Ollama. AWS Bedrock is disabled.
+To re-enable: set use_aws=True and restore AWS credentials in .env.
 """
 from __future__ import annotations
 
@@ -44,8 +39,8 @@ class LLMRouter:
             "anthropic.claude-3-5-sonnet-20241022-v2:0",
         )
         self.aws_region = os.getenv("AWS_REGION", "us-east-1")
-        # Controlled by the dashboard toggle — set False to route all calls to Ollama
-        self.use_aws: bool = True
+        # AWS Bedrock is blocked — all calls go to Ollama regardless of complexity
+        self.use_aws: bool = False
 
         # Cached clients — created once, reused across all calls
         self._ollama_client: ollama.Client = ollama.Client(host=self.ollama_host)
