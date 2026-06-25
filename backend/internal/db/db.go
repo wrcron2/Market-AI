@@ -202,6 +202,44 @@ func (d *DB) appendAuditLog(signalID, from, to, actor, message string) error {
 	return err
 }
 
+// AuditLogEntry mirrors a row from order_audit_log.
+type AuditLogEntry struct {
+	ID         int64  `json:"id"`
+	SignalID   string `json:"signal_id"`
+	FromStatus string `json:"from_status"`
+	ToStatus   string `json:"to_status"`
+	Actor      string `json:"actor"`
+	Message    string `json:"message"`
+	Timestamp  int64  `json:"timestamp"`
+}
+
+// ListAuditLog returns the most recent N audit log entries across all orders.
+func (d *DB) ListAuditLog(limit int) ([]*AuditLogEntry, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := d.Query(`
+		SELECT id, signal_id, COALESCE(from_status,''), to_status,
+		       actor, COALESCE(message,''), timestamp
+		FROM order_audit_log
+		ORDER BY timestamp DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*AuditLogEntry
+	for rows.Next() {
+		e := &AuditLogEntry{}
+		if err := rows.Scan(&e.ID, &e.SignalID, &e.FromStatus, &e.ToStatus,
+			&e.Actor, &e.Message, &e.Timestamp); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, nil
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 type scanner interface {

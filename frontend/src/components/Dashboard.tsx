@@ -7,6 +7,7 @@ import { AutoExecuteToggle, useAutoExecute } from './AutoExecuteToggle'
 import { LLMProviderToggle, useLLMProvider } from './LLMProviderToggle'
 import { AlpacaPortfolio } from './AlpacaPortfolio'
 import { VersionsPanel } from './VersionsPanel'
+import { AuditLog } from './AuditLog'
 import { useWebSocket } from '../hooks/useWebSocket'
 import type { StagedOrder, ListPendingResponse } from '../types'
 
@@ -14,7 +15,7 @@ const API_BASE = '/api'
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 const MAX_FEED_EVENTS = 100
 
-type Tab = 'signals' | 'portfolio' | 'versions'
+type Tab = 'signals' | 'portfolio' | 'audit' | 'versions'
 
 export function Dashboard() {
   const { mode, changeMode }                      = useTradingMode()
@@ -178,7 +179,7 @@ export function Dashboard() {
           <p className="tagline">Multi-Agent Trading · Green Light Gate Active</p>
         </div>
         <div className="header-right">
-          <LLMProviderToggle provider={llmProvider} onChange={changeProvider} />
+          <LLMProviderToggle />
           <TradingModeToggle mode={mode} onChange={changeMode} />
           <AutoExecuteToggle enabled={autoExec} onChange={toggle} />
         </div>
@@ -204,6 +205,12 @@ export function Dashboard() {
           Alpaca Portfolio
         </button>
         <button
+          className={`tab-btn ${activeTab === 'audit' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('audit')}
+        >
+          Audit Log
+        </button>
+        <button
           className={`tab-btn ${activeTab === 'versions' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('versions')}
         >
@@ -223,6 +230,7 @@ export function Dashboard() {
           onClearAlert={() => setLlmAlert(null)}
         />
       )}
+      {activeTab === 'audit' && <AuditLog />}
       {activeTab === 'versions' && <VersionsPanel />}
     </div>
   )

@@ -67,9 +67,9 @@ func main() {
 	var autoExMu   sync.RWMutex
 	autoExEnabled := false
 
-	// ─── LLM Provider toggle (in-memory, defaults to "aws") ──────────────────
+	// ─── LLM Provider (locked to "local" — AWS Bedrock disabled) ────────────
 	var llmProviderMu sync.RWMutex
-	llmProvider := "aws"
+	llmProvider := "local"
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
@@ -401,6 +401,21 @@ func main() {
 		writeJSON(w, map[string]any{"orders": orders})
 	})
 
+	// ─── Audit log ───────────────────────────────────────────────────────────────
+	mux.HandleFunc("/api/orders/audit-log", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+		entries, err := database.ListAuditLog(limit)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"entries": entries})
+	})
+
 	// ─── Retry a failed order ─────────────────────────────────────────────────
 	mux.HandleFunc("/api/orders/retry", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -479,8 +494,12 @@ func main() {
 				http.Error(w, "invalid body", http.StatusBadRequest)
 				return
 			}
-			if req.Provider != "aws" && req.Provider != "local" {
-				http.Error(w, `provider must be "aws" or "local"`, http.StatusBadRequest)
+			if req.Provider == "aws" {
+				http.Error(w, `AWS Bedrock is disabled — restore credentials in .env to re-enable`, http.StatusForbidden)
+				return
+			}
+			if req.Provider != "local" {
+				http.Error(w, `provider must be "local"`, http.StatusBadRequest)
 				return
 			}
 			llmProviderMu.Lock()
