@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -14,6 +13,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/marketflow/backend/internal/db"
 )
 
 // Handler holds shared state for all pipeline endpoints.
@@ -25,8 +26,7 @@ type Handler struct {
 	lastResearchRun *time.Time
 
 	projectRoot string
-	supabaseURL string
-	supabaseKey string
+	db          *db.DB
 	logger      *zap.Logger
 }
 
@@ -48,12 +48,11 @@ type RepoRow struct {
 	ResearchedAt     *string  `json:"researched_at"`
 }
 
-// New creates a Handler. projectRoot should be the working directory of the server.
-func New(projectRoot, supabaseURL, supabaseKey string, logger *zap.Logger) *Handler {
+// New creates a Handler using the existing SQLite DB — no external services required.
+func New(projectRoot string, database *db.DB, logger *zap.Logger) *Handler {
 	return &Handler{
 		projectRoot: projectRoot,
-		supabaseURL: supabaseURL,
-		supabaseKey: supabaseKey,
+		db:          database,
 		logger:      logger,
 	}
 }
@@ -65,47 +64,14 @@ func (h *Handler) Repos(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-
-	if h.supabaseURL == "" || h.supabaseKey == "" {
-		writeJSON(w, map[string]any{"repos": []any{}, "error": "Supabase not configured — set SUPABASE_URL and SUPABASE_SERVICE_KEY"})
-		return
-	}
-
 	statusFilter := r.URL.Query().Get("status")
-	apiURL := h.supabaseURL + "/rest/v1/github_repo_scout?select=*&order=first_seen_at.desc"
-	if statusFilter != "" {
-		apiURL += "&status=eq." + statusFilter
-	}
-
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, apiURL, nil)
+	rows, err := h.db.ListRepos(statusFilter)
 	if err != nil {
-		http.Error(w, "failed to build supabase request", http.StatusInternalServerError)
-		return
-	}
-	req.Header.Set("apikey", h.supabaseKey)
-	req.Header.Set("Authorization", "Bearer "+h.supabaseKey)
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		writeJSON(w, map[string]any{"repos": []any{}, "error": "Supabase unreachable: " + err.Error()})
-		return
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		writeJSON(w, map[string]any{"repos": []any{}, "error": fmt.Sprintf("Supabase error %d: %s", resp.StatusCode, string(body))})
-		return
-	}
-
-	var rows []RepoRow
-	if err := json.Unmarshal(body, &rows); err != nil {
-		writeJSON(w, map[string]any{"repos": []any{}, "error": "parse error: " + err.Error()})
+		writeJSON(w, map[string]any{"repos": []any{}, "error": err.Error()})
 		return
 	}
 	if rows == nil {
-		rows = []RepoRow{}
+		rows = []map[string]any{}
 	}
 	writeJSON(w, map[string]any{"repos": rows})
 }

@@ -693,6 +693,48 @@ func scanPosition(s scanner) (*Position, error) {
 	return p, nil
 }
 
+// ─── Pipeline Repo Scout ──────────────────────────────────────────────────────
+
+func (d *DB) ListRepos(statusFilter string) ([]map[string]any, error) {
+	q := `SELECT id, full_name, url, description, stars, language, topics,
+	             last_commit_at, first_seen_at, last_checked_at,
+	             status, rejected_reason, research_notion_url, researched_at
+	      FROM github_repo_scout`
+	args := []any{}
+	if statusFilter != "" {
+		q += " WHERE status = ?"
+		args = append(args, statusFilter)
+	}
+	q += " ORDER BY first_seen_at DESC LIMIT 200"
+
+	rows, err := d.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []map[string]any
+	for rows.Next() {
+		var id int64
+		var fullName, url, firstSeen, lastChecked, status string
+		var desc, lang, topics, lastCommit, rejReason, notionURL, researchedAt *string
+		var stars int
+		if err := rows.Scan(&id, &fullName, &url, &desc, &stars, &lang, &topics,
+			&lastCommit, &firstSeen, &lastChecked, &status, &rejReason, &notionURL, &researchedAt); err != nil {
+			continue
+		}
+		result = append(result, map[string]any{
+			"id": id, "full_name": fullName, "url": url, "description": desc,
+			"stars": stars, "language": lang, "topics": topics,
+			"last_commit_at": lastCommit, "first_seen_at": firstSeen,
+			"last_checked_at": lastChecked, "status": status,
+			"rejected_reason": rejReason, "research_notion_url": notionURL,
+			"researched_at": researchedAt,
+		})
+	}
+	return result, nil
+}
+
 // ─── Alerts ───────────────────────────────────────────────────────────────────
 
 type Alert struct {
@@ -892,6 +934,25 @@ CREATE TABLE IF NOT EXISTS signal_outcomes (
 
 CREATE INDEX IF NOT EXISTS idx_signal_outcomes_check
     ON signal_outcomes (check_5d_at, outcome_5d);
+
+CREATE TABLE IF NOT EXISTS github_repo_scout (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    full_name           TEXT NOT NULL UNIQUE,
+    url                 TEXT NOT NULL,
+    description         TEXT,
+    stars               INTEGER NOT NULL DEFAULT 0,
+    language            TEXT,
+    topics              TEXT DEFAULT '[]',
+    last_commit_at      TEXT,
+    first_seen_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    last_checked_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    status              TEXT NOT NULL DEFAULT 'new',
+    rejected_reason     TEXT,
+    research_notion_url TEXT,
+    researched_at       TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_repos_status ON github_repo_scout (status, first_seen_at DESC);
 
 CREATE TABLE IF NOT EXISTS alerts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -65,12 +65,7 @@ func main() {
 	alpacaProxy  := alpaca.NewHandler()
 
 	projectRoot := getEnv("PROJECT_ROOT", ".")
-	pipelineHandler := pipeline.New(
-		projectRoot,
-		getEnv("SUPABASE_URL", ""),
-		getEnv("SUPABASE_SERVICE_KEY", ""),
-		logger,
-	)
+	pipelineHandler := pipeline.New(projectRoot, database, logger)
 
 	// ─── Auto-Execute toggle (in-memory, resets to false on restart) ──────────
 	var autoExMu   sync.RWMutex
