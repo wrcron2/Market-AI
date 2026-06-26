@@ -191,6 +191,38 @@ func (d *DB) SetIBKROrderID(signalID string, ibkrOrderID int64) error {
 	return err
 }
 
+// ExpirePendingSignals transitions all PENDING signals to EXPIRED at market close.
+// Returns the number of signals expired.
+func (d *DB) ExpirePendingSignals(actor, message string) (int, error) {
+	rows, err := d.Query(`SELECT id FROM staged_orders WHERE status = 'PENDING'`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
+	}
+
+	count := 0
+	for _, id := range ids {
+		_, err := d.Exec(
+			`UPDATE staged_orders SET status = 'EXPIRED', updated_at = ? WHERE id = ?`,
+			time.Now().UnixMilli(), id,
+		)
+		if err != nil {
+			continue
+		}
+		_ = d.appendAuditLog(id, "PENDING", "EXPIRED", actor, message)
+		count++
+	}
+	return count, nil
+}
+
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
 func (d *DB) appendAuditLog(signalID, from, to, actor, message string) error {

@@ -76,7 +76,19 @@ class Orchestrator:
         Process a market data snapshot through the full agent pipeline.
         If AUTO_EXECUTE is true (checked live per run), executes on Alpaca
         after a successful submission to the Go backend.
+
+        Reg NMS guard: snapshots with _source="delayed" are blocked from
+        reaching the Green Light gate. Paper mode only.
         """
+        if market_snapshot.get("_source") == "delayed":
+            log.info(
+                "orchestrator.delayed_data_blocked",
+                symbol=market_snapshot.get("symbol"),
+                note="Reg NMS guard — delayed data cannot reach Green Light in live mode",
+            )
+            return {"market_snapshot": market_snapshot, "signal": None,
+                    "debate_result": None, "risk_result": None,
+                    "submitted": False, "executed": False}
         self._sync_llm_provider()
         initial: AgentState = {
             "market_snapshot": market_snapshot,
@@ -169,6 +181,13 @@ class Orchestrator:
         Checks today's daily loss limit before executing.
         """
         if self._alpaca is None or not self._is_auto_execute_enabled():
+            return state
+
+        # Block execution for pre/post market watchlist signals
+        if state.get("market_snapshot", {}).get("_requires_revalidation"):
+            log.info("orchestrator.watchlist_signal_skipped",
+                     symbol=state.get("signal", {}).symbol if state.get("signal") else "?",
+                     note="pre/post market signal — staged as watchlist, not executed")
             return state
 
         # Enforce a higher confidence bar for autonomous execution

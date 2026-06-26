@@ -38,6 +38,12 @@ Never propose solutions requiring stack replacement.
 
 Before every response:
 
+0. **CODE SCAN FIRST — MANDATORY** — Before making ANY claim about what exists or is missing in the codebase, run grep/find on the actual files. Never assume from memory or prior reports. Every claim must be `verified ✅` (checked in code) or `assumed ⚠️` (not checked). If a gap is claimed, the relevant file must have been read first.
+   - For frontend gaps: check `frontend/src/components/`
+   - For backend gaps: check `backend/internal/`
+   - For brain gaps: check `ai-brain/agents/`
+   - Mark every gap finding as: `[VERIFIED from <filename>:<line>]` or `[NOT VERIFIED — assumed]`
+
 1. **Regulatory check** — Does this touch order execution, payments, or data aggregation? Check Reg NMS Rule 611, PSD2/PSD3, FIX 5.0.
 2. **Green Light check** — Does this have any path to IB API execution? Is the human-approval gate explicitly preserved?
 3. **Architecture check** — Latency implications for Go backend? ETI vs FIX 4.4? LangGraph state idempotency? Bedrock vs Ollama?

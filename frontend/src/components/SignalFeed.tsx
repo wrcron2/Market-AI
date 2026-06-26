@@ -12,6 +12,7 @@ export interface FeedEvent {
   order?: Partial<StagedOrder>
   message?: string
   timestamp: number
+  autoExecuted?: boolean
 }
 
 const statusIcon: Record<FeedEvent['type'], JSX.Element> = {
@@ -78,6 +79,18 @@ function FeedItem({ event }: { event: FeedEvent }) {
             <span className="feed-qty">{order.quantity.toLocaleString()}</span>
           )}
         </>
+      )}
+      {event.autoExecuted && (
+        <span style={{
+          background: '#7c3aed22',
+          color: '#a78bfa',
+          border: '1px solid #7c3aed55',
+          borderRadius: 4,
+          padding: '1px 6px',
+          fontSize: 10,
+          fontWeight: 700,
+          marginRight: 4,
+        }}>⚡ AUTO</span>
       )}
       {event.message && <span className="feed-msg">{event.message}</span>}
     </li>

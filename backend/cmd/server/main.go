@@ -597,6 +597,20 @@ func main() {
 			json.NewEncoder(w).Encode(v)
 		}
 
+		// Reject impossible confidence=1.0 — indicates model parse error
+		if req.Confidence >= 1.0 {
+			logger.Warn("signal rejected: confidence=1.0 is a model parse error",
+				zap.String("signal_id", req.SignalID),
+				zap.String("symbol", req.Symbol),
+			)
+			writeJSON(map[string]any{
+				"signal_id": req.SignalID,
+				"accepted":  false,
+				"message":   "confidence=1.0 rejected — model parse error, not a valid signal",
+			})
+			return
+		}
+
 		if req.Confidence < minConf {
 			writeJSON(map[string]any{
 				"signal_id": req.SignalID,
@@ -663,6 +677,16 @@ func main() {
 					logger.Info("market-watcher: market open — auto-execute ON")
 				} else {
 					logger.Info("market-watcher: market closed — auto-execute OFF")
+					// Auto-expire all PENDING signals at market close — never carry stale signals to next day
+					go func() {
+						expired, err := database.ExpirePendingSignals("market-watcher", "Market closed — stale signals expired")
+						if err != nil {
+							logger.Error("market-watcher: failed to expire pending signals", zap.Error(err))
+						} else if expired > 0 {
+							logger.Info("market-watcher: expired stale PENDING signals", zap.Int("count", expired))
+							hub.Broadcast("signals_expired", map[string]any{"count": expired})
+						}
+					}()
 				}
 				prevState = &shouldEnable
 			}

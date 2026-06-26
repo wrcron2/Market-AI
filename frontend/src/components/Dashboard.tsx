@@ -79,8 +79,8 @@ export function Dashboard() {
         updateStats('rejected')
       },
       order_executed: (payload) => {
-        const { signal_id } = payload as { signal_id: string }
-        pushEvent({ id: signal_id, type: 'executed', timestamp: Date.now() })
+        const { signal_id, auto_executed } = payload as { signal_id: string; auto_executed?: boolean }
+        pushEvent({ id: signal_id, type: 'executed', timestamp: Date.now(), autoExecuted: !!auto_executed })
         updateStats('executed')
       },
       order_failed: (payload) => {

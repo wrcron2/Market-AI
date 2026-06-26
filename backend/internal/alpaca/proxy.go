@@ -90,10 +90,11 @@ func getenv(key, fallback string) string {
 
 // OrderResult is returned by PlaceOrder.
 type OrderResult struct {
-	ID     string  `json:"id"`
-	Status string  `json:"status"`
-	Symbol string  `json:"symbol"`
-	Qty    float64 `json:"qty,string"`
+	ID             string  `json:"id"`
+	Status         string  `json:"status"`
+	Symbol         string  `json:"symbol"`
+	Qty            float64 `json:"qty,string"`
+	FilledAvgPrice float64 `json:"filled_avg_price,omitempty"`
 }
 
 // PlaceOrder submits a market order to Alpaca paper trading.
@@ -140,6 +141,73 @@ func (h *Handler) PlaceOrder(symbol, direction string, qty float64) (*OrderResul
 		return nil, fmt.Errorf("alpaca response parse error: %w", err)
 	}
 	return &result, nil
+}
+
+// FetchFillPrice polls Alpaca for the real filled_avg_price of an order.
+// Strategy: read from order status (up to 3 attempts, 2s apart).
+// Falls back to latest trade price if still unfilled after retries.
+func (h *Handler) FetchFillPrice(orderID, symbol string) float64 {
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(2 * time.Second)
+		}
+		req, err := http.NewRequest(http.MethodGet, h.baseURL+"/v2/orders/"+orderID, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("APCA-API-KEY-ID", h.apiKey)
+		req.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+		req.Header.Set("Accept", "application/json")
+
+		resp, err := h.client.Do(req)
+		if err != nil {
+			continue
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		var order struct {
+			FilledAvgPrice string `json:"filled_avg_price"`
+			Status         string `json:"status"`
+		}
+		if err := json.Unmarshal(body, &order); err != nil {
+			continue
+		}
+		if order.FilledAvgPrice != "" && order.FilledAvgPrice != "null" {
+			var price float64
+			if _, err := fmt.Sscanf(order.FilledAvgPrice, "%f", &price); err == nil && price > 0 {
+				return price
+			}
+		}
+		if order.Status != "filled" && order.Status != "partially_filled" {
+			continue
+		}
+	}
+
+	// Fallback: fetch latest trade price from Alpaca data API
+	dataClient := &http.Client{}
+	dataURL := fmt.Sprintf("https://data.alpaca.markets/v2/stocks/%s/trades/latest?feed=iex", symbol)
+	req, err := http.NewRequest(http.MethodGet, dataURL, nil)
+	if err != nil {
+		return 0
+	}
+	req.Header.Set("APCA-API-KEY-ID", h.apiKey)
+	req.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+	resp, err := dataClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	var trade struct {
+		Trade struct {
+			Price float64 `json:"p"`
+		} `json:"trade"`
+	}
+	if err := json.Unmarshal(body, &trade); err == nil && trade.Trade.Price > 0 {
+		return trade.Trade.Price
+	}
+	return 0
 }
 
 // CloseResult is returned by ClosePosition.

@@ -173,6 +173,17 @@ func (h *Handler) submitToIBKR(order *db.StagedOrder) {
 	note := "Alpaca paper order " + result.ID
 	_ = h.db.TransitionStatus(order.ID, db.StatusExecuted, "alpaca", note)
 
+	// Fetch the real fill price from Alpaca (polls up to 3x with fallback).
+	fillPrice := h.alpaca.FetchFillPrice(result.ID, order.Symbol)
+	if fillPrice == 0 && order.LimitPrice > 0 {
+		fillPrice = order.LimitPrice // last resort: use requested limit price
+	}
+	h.log.Info("fill price synced",
+		zap.String("signal_id", order.ID),
+		zap.String("symbol", order.Symbol),
+		zap.Float64("fill_price", fillPrice),
+	)
+
 	// Record in positions table for history/charting.
 	direction := "LONG"
 	if order.Direction == "SELL" || order.Direction == "SHORT" || order.Direction == "COVER" {
@@ -183,7 +194,7 @@ func (h *Handler) submitToIBKR(order *db.StagedOrder) {
 		Symbol:        order.Symbol,
 		Direction:     direction,
 		Quantity:      order.Quantity,
-		EntryPrice:    order.LimitPrice, // placeholder; brain syncs fill price later
+		EntryPrice:    fillPrice,
 		EntryTime:     time.Now().UnixMilli(),
 		Confidence:    order.Confidence,
 		AlpacaOrderID: result.ID,

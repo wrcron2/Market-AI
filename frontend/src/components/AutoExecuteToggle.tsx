@@ -18,6 +18,13 @@ interface Props {
 export function AutoExecuteToggle({ enabled, onChange, disabled = false }: Props) {
   const handleToggle = () => {
     if (disabled) return
+    // Require confirmation before enabling autonomous execution
+    if (!enabled) {
+      const confirmed = window.confirm(
+        '⚡ Enable Auto-Execute?\n\nThe system will place orders automatically during market hours (9:25–16:05 ET) without your approval.\n\nAre you sure?'
+      )
+      if (!confirmed) return
+    }
     onChange(!enabled)
   }
 

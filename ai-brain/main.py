@@ -22,7 +22,38 @@ import signal
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from typing import Any
+
+try:
+    import pytz
+    _ET = pytz.timezone("America/New_York")
+except ImportError:
+    _ET = None
+
+
+def _market_window() -> str:
+    """
+    Returns the current market window:
+      'pre_market'   — 8:30–9:20 ET  (scan for watchlist, no execution)
+      'market'       — 9:25–16:05 ET (scan + AUTO_EXECUTE)
+      'post_market'  — 16:15–16:45 ET (post-close scan for next-day prep)
+      'closed'       — all other times (brain sleeps)
+    """
+    if _ET is None:
+        return "market"  # fallback if pytz not installed
+    now = datetime.now(_ET)
+    if now.weekday() >= 5:  # weekend
+        return "closed"
+    h, m = now.hour, now.minute
+    mins = h * 60 + m
+    if 8 * 60 + 30 <= mins <= 9 * 60 + 20:
+        return "pre_market"
+    if 9 * 60 + 25 <= mins <= 16 * 60 + 5:
+        return "market"
+    if 16 * 60 + 15 <= mins <= 16 * 60 + 45:
+        return "post_market"
+    return "closed"
 
 import httpx
 import structlog
@@ -170,6 +201,7 @@ def main() -> None:
     from agents.orchestrator import Orchestrator
     from data_feed.symbol_universe import get_symbols
     from data_feed.yahoo_feed import YahooFinanceFeed
+    from data_feed.alpaca_feed import AlpacaFeed
     from execution.alpaca_executor import AlpacaExecutor
 
     # ── Phase 1 gate: verify Alpaca paper account before any trading logic ─────
@@ -177,8 +209,9 @@ def main() -> None:
     alpaca.verify_account()
     log.info("alpaca.ready")
 
+    trading_mode = os.getenv("TRADING_MODE", "paper").lower()
+    log.info("marketflow.brain.starting", symbol_count=len(get_symbols()), trading_mode=trading_mode)
     symbols = get_symbols()
-    log.info("marketflow.brain.starting", symbol_count=len(symbols))
 
     from agents.outcome_checker import OutcomeChecker
     from agents.position_monitor import PositionMonitorAgent
@@ -190,7 +223,15 @@ def main() -> None:
 
     position_store = PositionStore(backend_url)
     orchestrator   = Orchestrator(alpaca=alpaca, position_store=position_store)
-    yahoo_feed     = YahooFinanceFeed(symbols)
+
+    # Feed selection: Alpaca (realtime) for live, Yahoo (delayed) for paper
+    if trading_mode == "live":
+        log.info("brain.feed", source="alpaca", feed=os.getenv("ALPACA_DATA_FEED", "iex"))
+        active_feed = AlpacaFeed(symbols)
+    else:
+        log.info("brain.feed", source="yahoo", note="delayed — paper mode only")
+        active_feed = YahooFinanceFeed(symbols)
+    yahoo_feed = active_feed  # keep variable name for compatibility
 
     # ── Start position monitor in a background daemon thread ──────────────────
     monitor = PositionMonitorAgent(
@@ -226,6 +267,13 @@ def main() -> None:
     while running_ref[0]:
         bar_count    += 1
         current_mode  = _get_current_mode()
+        window        = _market_window()
+
+        # ── Sleep outside scan windows ─────────────────────────────────────────
+        if window == "closed":
+            log.info("brain.sleeping", reason="outside market windows", next_check_seconds=60)
+            time.sleep(60)
+            continue
 
         if time.time() - last_symbol_refresh > 86_400:
             symbols = get_symbols()
@@ -233,7 +281,8 @@ def main() -> None:
             last_symbol_refresh = time.time()
             log.info("brain.symbols_refreshed", count=len(symbols))
 
-        log.info("brain.bar_start", bar=bar_count, mode=current_mode, symbols=len(yahoo_feed.symbols))
+        log.info("brain.bar_start", bar=bar_count, mode=current_mode,
+                 window=window, symbols=len(yahoo_feed.symbols))
 
         # ── Fetch market data ──────────────────────────────────────────────────
         if current_mode == "yahoo":
@@ -252,6 +301,13 @@ def main() -> None:
             log.warning("brain.no_snapshots")
             time.sleep(BAR_INTERVAL_SECONDS)
             continue
+
+        # Tag pre/post market snapshots — orchestrator will stage but not execute
+        if window in ("pre_market", "post_market"):
+            for s in snapshots:
+                s["_requires_revalidation"] = True
+            log.info("brain.watchlist_mode", window=window,
+                     note="signals staged as watchlist only — no execution until market open")
 
         # ── Pre-filter: drop flat/neutral snapshots before touching the LLM ──
         before = len(snapshots)
