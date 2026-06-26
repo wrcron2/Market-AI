@@ -45,19 +45,19 @@ def momentum_breakout(row: pd.Series, account_size: float = 100_000) -> Signal |
     close     = row.get("Close", 0)
     sma_20    = row.get("sma_20", close)
 
+    sma_50 = row.get("sma_50", sma_20)  # confirmed uptrend filter
+
     # Hard no-trade conditions
     if atr_pct > 8.0:
         return None
-    if vol_ratio < 0.7:
-        return None
-    if vol_ratio < 1.5:
-        return None  # momentum requires conviction volume
+    if vol_ratio < 2.0:
+        return None  # require institutional conviction (raised from 1.5)
 
-    # BUY: histogram expanding positively + price above SMA20
-    if macd_hist > 0.05 and close > sma_20:
+    # BUY: strong histogram + price above SMA50 (confirmed uptrend)
+    if macd_hist > 0.20 and close > sma_50:
         direction = "BUY"
-    # SELL: histogram expanding negatively + price below SMA20
-    elif macd_hist < -0.05 and close < sma_20:
+    # SELL: strong negative histogram + price below SMA50
+    elif macd_hist < -0.20 and close < sma_50:
         direction = "SELL"
     else:
         return None
@@ -73,7 +73,7 @@ def momentum_breakout(row: pd.Series, account_size: float = 100_000) -> Signal |
     if confidence < 0.70:
         return None
 
-    stop_dist    = atr_val * 2.0
+    stop_dist    = atr_val * 2.5  # wider stop — give trades more room
     dollar_risk  = account_size * 0.01
     quantity     = int(dollar_risk / stop_dist) if stop_dist > 0.01 else 0
     quantity     = min(quantity, 500, int(account_size * 0.08 / close))
@@ -119,6 +119,8 @@ def mean_reversion(row: pd.Series, account_size: float = 100_000) -> Signal | No
     atr_val   = row.get("atr", 0)
     close     = row.get("Close", 0)
 
+    vix = row.get("vix", 18.0)  # VIX filter — real fear = real oversold
+
     # Hard no-trade conditions
     if atr_pct > 8.0:
         return None
@@ -126,12 +128,14 @@ def mean_reversion(row: pd.Series, account_size: float = 100_000) -> Signal | No
         return None  # strong trend — don't fade
     if vol_ratio > 1.5:
         return None  # expanding volume = breakout, not reversion
+    if vix < 18.0:
+        return None  # low fear = no real oversold condition
 
-    # BUY: oversold
-    if rsi < 25 and bb_b < 0.10 and vol_ratio < 1.0:
+    # BUY: relaxed oversold thresholds + VIX elevated
+    if rsi < 30 and bb_b < 0.15 and vol_ratio < 1.0:
         direction = "BUY"
-    # SELL: overbought
-    elif rsi > 75 and bb_b > 0.90 and vol_ratio < 1.0:
+    # SELL: relaxed overbought thresholds + VIX elevated
+    elif rsi > 70 and bb_b > 0.85 and vol_ratio < 1.0:
         direction = "SELL"
     else:
         return None

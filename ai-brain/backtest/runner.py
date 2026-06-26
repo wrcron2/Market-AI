@@ -20,8 +20,11 @@ import yfinance as yf
 import structlog
 
 from .indicators import compute_all
-from .strategy import STRATEGIES, Signal
+from .strategy import STRATEGIES as STRATEGIES_BASE, Signal
+from .strategy_trend import STRATEGIES as STRATEGIES_TREND, TREND_UNIVERSE
 from .report import Trade, BacktestResult, compute_report
+
+STRATEGIES = {**STRATEGIES_BASE, **STRATEGIES_TREND}
 
 log = structlog.get_logger(__name__)
 
@@ -29,7 +32,8 @@ log = structlog.get_logger(__name__)
 LOOKBACK_YEARS    = 5
 STOP_LOSS_PCT     = float(os.getenv("STOP_LOSS_PCT",    "5.0"))
 TAKE_PROFIT_PCT   = float(os.getenv("TAKE_PROFIT_PCT",  "15.0"))
-MAX_HOLD_DAYS     = int(os.getenv("MAX_HOLD_DAYS",      "5"))
+MAX_HOLD_DAYS_MOMENTUM   = 10   # let momentum winners run longer
+MAX_HOLD_DAYS_REVERSION  = 7    # mean reversion plays out in a week
 ACCOUNT_SIZE      = float(os.getenv("SIM_INITIAL_CASH", "100000"))
 COMMISSION        = 0.005   # $0.005/share
 SLIPPAGE_ATR_MULT = 0.1     # fill at close ± ATR × 0.1
@@ -44,7 +48,13 @@ class BacktestRunner:
             raise ValueError(f"Unknown strategy: {strategy_name}. Choose from {list(STRATEGIES)}")
         self.strategy_name = strategy_name
         self.strategy_fn   = STRATEGIES[strategy_name]
-        self.symbols       = symbols or self._default_symbols()
+        # dual_momentum uses a fixed 5-ETF universe by design
+        if symbols:
+            self.symbols = symbols
+        elif strategy_name == "dual_momentum":
+            self.symbols = TREND_UNIVERSE
+        else:
+            self.symbols = self._default_symbols()
 
     def run(self) -> BacktestResult:
         """Run full backtest and return results."""
@@ -134,9 +144,15 @@ class BacktestRunner:
                     if close <= stop_loss:
                         exit_reason = "stop_loss"
                         exit_price  = stop_loss
-                    elif close >= take_profit:
+                    elif take_profit < 999 and close >= take_profit:
                         exit_reason = "take_profit"
                         exit_price  = take_profit
+                    elif take_profit >= 999:
+                        # dual_momentum: exit when price crosses below SMA20
+                        sma20 = float(row.get("sma_20", close))
+                        if close < sma20:
+                            exit_reason = "sma20_cross"
+                            exit_price  = close
                 elif direction == "SELL":
                     if close >= stop_loss:
                         exit_reason = "stop_loss"
@@ -145,7 +161,8 @@ class BacktestRunner:
                         exit_reason = "take_profit"
                         exit_price  = take_profit
 
-                if exit_reason is None and days_held >= MAX_HOLD_DAYS:
+                # No max_hold exit for any strategy
+                if False and days_held >= 999:  # disabled
                     exit_reason = "max_hold"
 
                 if exit_reason:
@@ -206,15 +223,14 @@ class BacktestRunner:
 
     @staticmethod
     def _default_symbols() -> list[str]:
-        """S&P 500 representative sample — enough for 100+ trades."""
+        """Sector and commodity ETFs — cleaner technical signals than individual stocks.
+        ETFs move on macro flows and sector rotation, not earnings surprises.
+        """
         return [
-            "AAPL","MSFT","NVDA","AMZN","GOOGL","META","TSLA","BRK-B","LLY","JPM",
-            "V","UNH","XOM","MA","AVGO","HD","PG","COST","JNJ","MRK","ABBV","BAC",
-            "CRM","NFLX","CVX","AMD","KO","PEP","TMO","MCD","CSCO","ABT","DHR","WMT",
-            "ACN","LIN","TXN","NEE","PM","ORCL","ADBE","QCOM","RTX","HON","MS","GE",
-            "AMAT","AMGN","ISRG","CAT","IBM","SPGI","GS","AXP","BLK","SYK","MDT",
-            "DE","GILD","PLD","ELV","REGN","NOW","ADI","MU","LRCX","ADP","ZTS","BSX",
-            "CI","SCHW","TJX","MMC","CB","SO","DUK","CL","CME","HUM","VRTX","FI",
-            "EOG","PGR","SLB","WM","NOC","GD","FDX","APD","ECL","MCHP","KLAC","SNPS",
-            "CDNS","ROP","FTNT","DXCM","IDXX","MTD","CTAS","VRSK","BR","ANSS","TT",
+            # Sector ETFs
+            "XLK","XLE","XLF","XLV","XLI","XLU","XLP","XLY","XLB","XLRE","XLC",
+            # Broad market ETFs
+            "QQQ","IWM","DIA","SPY","MDY",
+            # Commodity and bond ETFs
+            "GLD","TLT","EEM","GDX","SLV","USO","HYG","LQD",
         ]

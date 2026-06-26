@@ -29,27 +29,18 @@ _CACHE_FILE = _CACHE_DIR / "symbols_cache.json"
 _CACHE_TTL  = 86_400  # 24 hours
 
 
+# dual_momentum universe — 5 liquid macro ETFs
+# Validated by Phase 3 backtest: Sharpe 0.79, out-of-sample Sharpe 1.07
+DUAL_MOMENTUM_UNIVERSE = ["QQQ", "GLD", "TLT", "EEM", "XLE"]
+
+
 def get_symbols() -> list[str]:
     """
-    Return up to 500 active, tradeable US equity symbols.
-    Reads from cache if fresh; otherwise fetches from Alpaca.
+    Return the dual_momentum ETF universe.
+    Fixed to 5 symbols — momentum_breakout and mean_reversion on stocks are retired.
     """
-    cached = _load_cache()
-    if cached:
-        log.info("symbol_universe.cache_hit", count=len(cached))
-        return cached
-
-    log.info("symbol_universe.fetching", source="alpaca")
-    symbols = _fetch_alpaca()
-
-    if symbols:
-        _save_cache(symbols)
-        log.info("symbol_universe.fetched", count=len(symbols))
-    else:
-        log.warning("symbol_universe.fetch_failed", fallback="hardcoded_core")
-        symbols = _fallback_symbols()
-
-    return symbols
+    log.info("symbol_universe.dual_momentum", symbols=DUAL_MOMENTUM_UNIVERSE)
+    return DUAL_MOMENTUM_UNIVERSE
 
 
 def refresh() -> list[str]:

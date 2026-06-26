@@ -83,6 +83,9 @@ def compute_all(df: pd.DataFrame) -> pd.DataFrame:
     df["atr"]       = atr(df["High"], df["Low"], df["Close"])
     df["vol_sma20"] = volume_sma(df["Volume"])
     df["vol_ratio"] = df["Volume"] / df["vol_sma20"].replace(0, float("nan"))
-    df["sma_20"]    = sma(df["Close"])
+    df["sma_20"]    = sma(df["Close"], 20)
+    df["sma_50"]    = sma(df["Close"], 50)
     df["atr_pct"]   = df["atr"] / df["Close"] * 100
+    df["high_52w"]  = df["Close"].rolling(252).max()
+    df["vix"]       = 18.5  # neutral placeholder — live uses real VIX
     return df

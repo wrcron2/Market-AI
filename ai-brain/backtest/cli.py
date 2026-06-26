@@ -80,7 +80,7 @@ def main():
     run_parser = sub.add_parser("run", help="Run a backtest")
     run_parser.add_argument(
         "--strategy", required=True,
-        choices=["momentum_breakout", "mean_reversion", "all"],
+        choices=["momentum_breakout", "mean_reversion", "dual_momentum", "all"],
         help="Strategy to backtest",
     )
     run_parser.add_argument(
@@ -97,7 +97,7 @@ def main():
     symbols = [s.strip().upper() for s in args.symbols.split(",")] if args.symbols else None
 
     strategies = (
-        ["momentum_breakout", "mean_reversion"]
+        ["momentum_breakout", "mean_reversion", "dual_momentum"]
         if args.strategy == "all"
         else [args.strategy]
     )

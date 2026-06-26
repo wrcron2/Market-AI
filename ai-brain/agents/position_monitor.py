@@ -147,6 +147,20 @@ class PositionMonitorAgent:
                        entry_price=entry_price, current=current, qty=qty, pl=pl)
             return
 
+        # ── Layer 1b: SMA20 exit for dual_momentum positions ──────────────────
+        # dual_momentum has no fixed take_profit — it rides the trend until SMA20 cross.
+        strategy = db_record.get("strategy_name", "") if db_record else ""
+        if strategy == "dual_momentum":
+            try:
+                sma20 = self._fetch_sma20(symbol)
+                if sma20 and current < sma20:
+                    self._sell(pos, signal_id=signal_id,
+                               reason=f"sma20_cross (price={current:.2f} < sma20={sma20:.2f})",
+                               entry_price=entry_price, current=current, qty=qty, pl=pl)
+                    return
+            except Exception as exc:
+                log.warning("position_monitor.sma20_fetch_failed", symbol=symbol, error=str(exc))
+
         # ── Layer 4: Big moves or EOD → Bedrock directly ──────────────────────
         is_big_move = abs(plpc) >= self.stop_loss_pct or plpc >= (self.take_profit_pct * 0.7)
         if is_big_move or is_eod:
@@ -242,6 +256,20 @@ class PositionMonitorAgent:
         log.info("position_monitor.bedrock_decision",
                  symbol=pos["symbol"], raw=raw[:60], decision=decision)
         return decision
+
+    def _fetch_sma20(self, symbol: str) -> float | None:
+        """Fetch 20-day SMA for a symbol using yfinance (for SMA20 exit check)."""
+        try:
+            import yfinance as yf
+            import pandas as pd
+            df = yf.download(symbol, period="30d", interval="1d",
+                             auto_adjust=True, progress=False)
+            if df.empty or len(df) < 20:
+                return None
+            close = df["Close"].astype(float)
+            return float(close.rolling(20).mean().iloc[-1])
+        except Exception:
+            return None
 
     # ── Execute sell ───────────────────────────────────────────────────────────
 

@@ -198,6 +198,7 @@ class YahooFinanceFeed:
                 "volume_sma20": int(vol_series.rolling(20).mean().iloc[-1]),
                 "sma_20":       round(close_series.rolling(20).mean().iloc[-1], 2),
                 "sma_50":       round(close_series.rolling(min(50, len(df))).mean().iloc[-1], 2),
+                "high_52w":     round(close_series.rolling(min(252, len(df))).max().iloc[-1], 2),
             },
             "market_context": {
                 "vix":         round(vix, 2),

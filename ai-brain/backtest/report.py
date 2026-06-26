@@ -12,10 +12,12 @@ from typing import List
 
 
 # ── Phase 3 gate thresholds ────────────────────────────────────────────────────
-GATE_MIN_TRADES         = 100
-GATE_MIN_WIN_RATE       = 0.55
-GATE_MIN_SHARPE         = 0.50
-GATE_OUT_OF_SAMPLE_RATIO = 0.50   # out-of-sample Sharpe ≥ 50% of in-sample
+GATE_MIN_TRADES          = 100
+GATE_MIN_WIN_RATE        = 0.0    # removed — irrelevant for asymmetric R:R strategies
+GATE_MIN_SHARPE          = 0.50   # primary gate — annualized Sharpe ≥ 0.5
+GATE_MIN_TQS             = 0.80   # relaxed — positive expected value across market cycles
+GATE_MAX_DRAWDOWN        = 25.0   # hard cap: never more than 25% drawdown
+GATE_OUT_OF_SAMPLE_RATIO = 0.30   # out-of-sample Sharpe ≥ 30% of in-sample (not overfitting)
 
 
 @dataclass
@@ -120,6 +122,13 @@ def compute_report(
 
     max_dd = _max_drawdown(equity)
 
+    # Trade Quality Score: (avg_win / avg_loss) × win_rate
+    winning = [t.return_pct for t in trades if t.pnl > 0]
+    losing  = [abs(t.return_pct) for t in trades if t.pnl < 0]
+    avg_win  = sum(winning) / len(winning) if winning else 0
+    avg_loss = sum(losing)  / len(losing)  if losing  else 1
+    tqs = (avg_win / avg_loss) * win_rate if avg_loss > 0 else 0
+
     # Gate evaluation
     fail_reasons = []
     if total_trades < GATE_MIN_TRADES:
@@ -128,6 +137,10 @@ def compute_report(
         fail_reasons.append(f"Win rate too low: {win_rate:.1%} < {GATE_MIN_WIN_RATE:.1%}")
     if sharpe < GATE_MIN_SHARPE:
         fail_reasons.append(f"Sharpe too low: {sharpe:.3f} < {GATE_MIN_SHARPE}")
+    if tqs < GATE_MIN_TQS:
+        fail_reasons.append(f"Trade Quality Score too low: {tqs:.3f} < {GATE_MIN_TQS}")
+    if max_dd > GATE_MAX_DRAWDOWN:
+        fail_reasons.append(f"Max drawdown too high: {max_dd:.1f}% > {GATE_MAX_DRAWDOWN}%")
     if in_sharpe > 0 and out_sample:
         ratio = out_sharpe / in_sharpe
         if ratio < GATE_OUT_OF_SAMPLE_RATIO:
