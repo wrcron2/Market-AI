@@ -259,6 +259,10 @@ Output ONLY raw JSON starting with { — no markdown, no explanation:
             if not isinstance(data, dict):
                 log.info("signal_agent.no_trade", symbol=symbol, reason="model returned null")
                 return None
+            # Reject confidence=0.0 — model didn't calibrate, treat as no-trade
+            if float(data.get("initial_confidence", 0)) == 0.0:
+                log.info("signal_agent.no_trade", symbol=symbol, reason="confidence=0.0 (model did not calibrate)")
+                return None
             data.setdefault("strategy_name", self.strategy_name)
             signal = CandidateSignal(**data)
             log.info(
