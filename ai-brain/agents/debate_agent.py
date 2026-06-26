@@ -203,10 +203,15 @@ class DebateAgent:
             raw_direction = judge_data["consensus_direction"].upper()
             allowed = {"BUY", "SELL", "SHORT", "COVER"}
             if raw_direction not in allowed:
-                log.warning("debate_agent.invalid_direction",
+                # Judge expressed doubt (e.g. "HOLD") — this is meaningful, not a parse error.
+                # Block the signal rather than overriding the Judge's conclusion.
+                log.warning("debate_agent.invalid_direction_blocked",
                             symbol=signal.symbol, raw=raw_direction,
-                            fallback=signal.direction)
-                raw_direction = signal.direction  # fall back to original signal direction
+                            note="Judge expressed doubt — signal blocked, not overridden")
+                raise RuntimeError(
+                    f"Judge output invalid direction '{raw_direction}' for {signal.symbol} — "
+                    f"signal blocked. Judge had doubt; respecting it."
+                )
 
             result = DebateResult(
                 bull_argument=bull_arg,
