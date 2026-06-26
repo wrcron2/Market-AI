@@ -54,13 +54,14 @@ class Orchestrator:
     into staged orders on the Go backend.
     """
 
-    def __init__(self, alpaca: Any = None, position_store: Any = None) -> None:
+    def __init__(self, alpaca: Any = None, position_store: Any = None, notifier: Any = None) -> None:
         self.router         = LLMRouter()
         self.signal_agent   = SignalAgent(self.router)
         self.debate_agent   = DebateAgent(self.router)
         self.risk_agent     = RiskAgent(self.router)
         self._alpaca        = alpaca
         self._position_store = position_store
+        self._notifier      = notifier
 
         backend_host = os.getenv("BRAIN_HOST", "127.0.0.1")
         backend_port = os.getenv("GO_SERVER_PORT", "8080")
@@ -230,6 +231,11 @@ class Orchestrator:
             limits = self._position_store.get_today_limits()
             if limits.get("is_halted"):
                 log.info("orchestrator.daily_limit_halted", symbol=signal.symbol)
+                if self._notifier:
+                    self._notifier.critical(
+                        "Daily Loss Limit Reached — AUTO_EXECUTE Halted",
+                        f"Symbol attempted: {signal.symbol}\nRealized P&L today: ${limits.get('realized_pnl', 0):.2f}\nAll new auto-execute orders halted until tomorrow."
+                    )
                 return {**state, "error": "daily loss limit reached — order skipped"}
 
         # Guard: skip if Alpaca already holds an open position for this symbol

@@ -216,13 +216,16 @@ def main() -> None:
     from agents.outcome_checker import OutcomeChecker
     from agents.position_monitor import PositionMonitorAgent
     from db.position_store import PositionStore
+    from alerts.notifier import Notifier
 
     backend_host = os.getenv("BRAIN_HOST", "127.0.0.1")
     backend_port = os.getenv("GO_SERVER_PORT", "8080")
     backend_url  = f"http://{backend_host}:{backend_port}"
 
     position_store = PositionStore(backend_url)
-    orchestrator   = Orchestrator(alpaca=alpaca, position_store=position_store)
+    notifier       = Notifier(backend_url)
+    notifier.medium("MarketFlow AI Started", f"Brain started on Oracle.\nTrading mode: {trading_mode}\nStrategy: dual_momentum\nUniverse: QQQ, GLD, TLT, EEM, XLE")
+    orchestrator   = Orchestrator(alpaca=alpaca, position_store=position_store, notifier=notifier)
 
     # Feed selection: Alpaca (realtime) for live, Yahoo (delayed) for paper
     if trading_mode == "live":
