@@ -204,7 +204,7 @@ class YahooFinanceFeed:
                 "spy_trend":   spy_trend,
                 "sector_flow": self._classify_market_sentiment(vix),
             },
-            "_source":    "yfinance",
+            "_source":    "delayed",  # Reg NMS guard: blocks live execution, paper only
             "_timestamp": int(time.time()),
         }
 
