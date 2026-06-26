@@ -201,7 +201,7 @@ Output null if total confidence < 0.70 — below this, expected value is negativ
 Output ONLY raw JSON starting with { — no markdown, no explanation:
 {"symbol":"NVDA","direction":"BUY","quantity":160,"limit_price":0,"reasoning":"RSI recovering 26→31 (upward, confirming reversal); %B at 0.06 (BB lower extreme); volume contracting to 0.85x avg (mean-reversion setup, not breakout); MACD histogram near zero, not directional. VIX 17 (normal), SPY uptrend. Three partially-independent signals align for mean_reversion BUY. RSI+MACD correlated so counted as single block (+0.08); volume contraction confirms overextension (+0.05); SPY tailwind (+0.06); VIX normal (+0.04) = 0.83 confidence. Sizing: VIX 17 → dollar_risk=$1,000; ATR=$3.12 → stop_distance=$6.24; shares=160 (capped at 8% allocation).","strategy_name":"mean_reversion","initial_confidence":0.83}"""
 
-    def __init__(self, router: LLMRouter, strategy_name: str = "momentum_breakout") -> None:
+    def __init__(self, router: LLMRouter, strategy_name: str = "dual_momentum") -> None:
         self.router = router
         self.strategy_name = strategy_name
 
