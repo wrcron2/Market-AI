@@ -693,6 +693,45 @@ func scanPosition(s scanner) (*Position, error) {
 	return p, nil
 }
 
+// ─── Alerts ───────────────────────────────────────────────────────────────────
+
+type Alert struct {
+	ID        int64  `json:"id"`
+	Severity  string `json:"severity"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	CreatedAt int64  `json:"created_at"`
+}
+
+func (d *DB) InsertAlert(severity, title, body string) error {
+	_, err := d.Exec(
+		`INSERT INTO alerts (severity, title, body, created_at) VALUES (?,?,?,?)`,
+		severity, title, body, time.Now().UnixMilli(),
+	)
+	return err
+}
+
+func (d *DB) ListAlerts(limit int) ([]*Alert, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := d.Query(
+		`SELECT id, severity, title, body, created_at FROM alerts ORDER BY created_at DESC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var alerts []*Alert
+	for rows.Next() {
+		a := &Alert{}
+		if err := rows.Scan(&a.ID, &a.Severity, &a.Title, &a.Body, &a.CreatedAt); err == nil {
+			alerts = append(alerts, a)
+		}
+	}
+	return alerts, nil
+}
+
 // ─── Threshold Store ──────────────────────────────────────────────────────────
 
 // ThresholdEntry is one calibrated confidence threshold for a strategy/bucket/regime.
@@ -853,6 +892,17 @@ CREATE TABLE IF NOT EXISTS signal_outcomes (
 
 CREATE INDEX IF NOT EXISTS idx_signal_outcomes_check
     ON signal_outcomes (check_5d_at, outcome_5d);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    severity   TEXT NOT NULL CHECK (severity IN ('CRITICAL','HIGH','MEDIUM','INFO')),
+    title      TEXT NOT NULL,
+    body       TEXT NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_created
+    ON alerts (created_at DESC);
 
 CREATE TABLE IF NOT EXISTS threshold_store (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
