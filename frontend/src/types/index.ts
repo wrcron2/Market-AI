@@ -33,6 +33,8 @@ export type WsMessageType =
   | 'auto_execute_changed'
   | 'llm_provider_changed'
   | 'llm_unreachable'
+  | 'debate_failed'
+  | 'signals_expired'
 
 export interface WsMessage {
   type: WsMessageType
