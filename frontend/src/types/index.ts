@@ -35,6 +35,7 @@ export type WsMessageType =
   | 'llm_unreachable'
   | 'debate_failed'
   | 'signals_expired'
+  | 'alert'
 
 export interface WsMessage {
   type: WsMessageType

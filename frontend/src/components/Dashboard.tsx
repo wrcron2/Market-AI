@@ -8,6 +8,7 @@ import { LLMProviderToggle, useLLMProvider } from './LLMProviderToggle'
 import { AlpacaPortfolio } from './AlpacaPortfolio'
 import { VersionsPanel } from './VersionsPanel'
 import { AuditLog } from './AuditLog'
+import { AlertsPanel } from './AlertsPanel'
 import { useWebSocket } from '../hooks/useWebSocket'
 import type { StagedOrder, ListPendingResponse } from '../types'
 
@@ -15,7 +16,7 @@ const API_BASE = '/api'
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 const MAX_FEED_EVENTS = 100
 
-type Tab = 'signals' | 'portfolio' | 'audit' | 'versions'
+type Tab = 'signals' | 'portfolio' | 'alerts' | 'audit' | 'versions'
 
 export function Dashboard() {
   const { mode, changeMode }                      = useTradingMode()
@@ -209,6 +210,10 @@ export function Dashboard() {
           Alpaca Portfolio
         </button>
         <button
+          className={`tab-btn ${activeTab === 'alerts' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('alerts')}
+        >🔔 Alerts</button>
+        <button
           className={`tab-btn ${activeTab === 'audit' ? 'tab-active' : ''}`}
           onClick={() => setActiveTab('audit')}
         >
@@ -234,6 +239,7 @@ export function Dashboard() {
           onClearAlert={() => setLlmAlert(null)}
         />
       )}
+      {activeTab === 'alerts' && <AlertsPanel />}
       {activeTab === 'audit' && <AuditLog />}
       {activeTab === 'versions' && <VersionsPanel />}
     </div>
