@@ -80,11 +80,13 @@ class Orchestrator:
         Reg NMS guard: snapshots with _source="delayed" are blocked from
         reaching the Green Light gate. Paper mode only.
         """
-        if market_snapshot.get("_source") == "delayed":
+        # Reg NMS guard: only block delayed data in LIVE mode, not paper
+        if market_snapshot.get("_source") == "delayed" and \
+                os.getenv("TRADING_MODE", "paper").lower() == "live":
             log.info(
                 "orchestrator.delayed_data_blocked",
                 symbol=market_snapshot.get("symbol"),
-                note="Reg NMS guard — delayed data cannot reach Green Light in live mode",
+                note="Reg NMS guard — delayed data blocked in live mode only",
             )
             return {"market_snapshot": market_snapshot, "signal": None,
                     "debate_result": None, "risk_result": None,
