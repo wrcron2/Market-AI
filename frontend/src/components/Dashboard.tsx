@@ -9,6 +9,7 @@ import { AlpacaPortfolio } from './AlpacaPortfolio'
 import { VersionsPanel } from './VersionsPanel'
 import { AuditLog } from './AuditLog'
 import { AlertsPanel } from './AlertsPanel'
+import { PipelinePanel } from './PipelinePanel'
 import { useWebSocket } from '../hooks/useWebSocket'
 import type { StagedOrder, ListPendingResponse } from '../types'
 
@@ -16,7 +17,7 @@ const API_BASE = '/api'
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 const MAX_FEED_EVENTS = 100
 
-type Tab = 'signals' | 'portfolio' | 'alerts' | 'audit' | 'versions'
+type Tab = 'signals' | 'portfolio' | 'alerts' | 'audit' | 'versions' | 'pipeline'
 
 export function Dashboard() {
   const { mode, changeMode }                      = useTradingMode()
@@ -225,6 +226,12 @@ export function Dashboard() {
         >
           Versions
         </button>
+        <button
+          className={`tab-btn ${activeTab === 'pipeline' ? 'tab-active' : ''}`}
+          onClick={() => setActiveTab('pipeline')}
+        >
+          🔭 Pipeline
+        </button>
       </div>
 
       {activeTab === 'signals' && (
@@ -242,6 +249,7 @@ export function Dashboard() {
       {activeTab === 'alerts' && <AlertsPanel />}
       {activeTab === 'audit' && <AuditLog />}
       {activeTab === 'versions' && <VersionsPanel />}
+      {activeTab === 'pipeline' && <PipelinePanel />}
     </div>
   )
 }

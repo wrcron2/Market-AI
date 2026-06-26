@@ -23,6 +23,7 @@ import (
 	"github.com/marketflow/backend/internal/greenlight"
 	grpcbridge "github.com/marketflow/backend/internal/grpc"
 	"github.com/marketflow/backend/internal/mode"
+	"github.com/marketflow/backend/internal/pipeline"
 	"github.com/marketflow/backend/internal/versions"
 	"github.com/marketflow/backend/internal/ws"
 	proto "github.com/marketflow/backend/proto"
@@ -62,6 +63,14 @@ func main() {
 	// ─── Green Light HTTP Handler ─────────────────────────────────────────────
 	glHandler    := greenlight.NewHandler(database, hub, modeManager, logger)
 	alpacaProxy  := alpaca.NewHandler()
+
+	projectRoot := getEnv("PROJECT_ROOT", ".")
+	pipelineHandler := pipeline.New(
+		projectRoot,
+		getEnv("SUPABASE_URL", ""),
+		getEnv("SUPABASE_SERVICE_KEY", ""),
+		logger,
+	)
 
 	// ─── Auto-Execute toggle (in-memory, resets to false on restart) ──────────
 	var autoExMu   sync.RWMutex
@@ -401,6 +410,45 @@ func main() {
 		writeJSON(w, map[string]any{"orders": orders})
 	})
 
+	// ─── Alerts ───────────────────────────────────────────────────────────────────
+	mux.HandleFunc("/api/alerts", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+			alerts, err := database.ListAlerts(limit)
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"alerts": alerts})
+
+		case http.MethodPost:
+			var req struct {
+				Severity string `json:"severity"`
+				Title    string `json:"title"`
+				Body     string `json:"body"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+			if err := database.InsertAlert(req.Severity, req.Title, req.Body); err != nil {
+				http.Error(w, "insert failed", http.StatusInternalServerError)
+				return
+			}
+			hub.Broadcast("alert", map[string]any{
+				"severity": req.Severity,
+				"title":    req.Title,
+				"body":     req.Body,
+			})
+			logger.Info("alert received", zap.String("severity", req.Severity), zap.String("title", req.Title))
+			writeJSON(w, map[string]any{"success": true})
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	// ─── Threshold Store — adaptive confidence floors ─────────────────────────────
 	mux.HandleFunc("/api/thresholds", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -510,6 +558,13 @@ func main() {
 	mux.HandleFunc("/api/versions",                    versions.List)
 	mux.HandleFunc("/api/versions/switch",             versions.Switch)
 	mux.HandleFunc("/api/versions/{version}/note",     versions.UpdateNote)
+
+	// ─── Repo Scout & Research Pipeline ─────────────────────────────────────────
+	mux.HandleFunc("/api/pipeline/repos",          pipelineHandler.Repos)
+	mux.HandleFunc("/api/pipeline/status",         pipelineHandler.Status)
+	mux.HandleFunc("/api/pipeline/run/scout",      pipelineHandler.RunScout)
+	mux.HandleFunc("/api/pipeline/run/research",   pipelineHandler.RunResearch)
+	mux.HandleFunc("/api/pipeline/logs",           pipelineHandler.Logs)
 
 	// ─── Internal broadcast (Python brain → dashboard via WebSocket) ──────────
 	// Only the brain calls this. No CORS check needed (same host).
