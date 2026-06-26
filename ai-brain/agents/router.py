@@ -24,27 +24,29 @@ log = structlog.get_logger(__name__)
 
 
 class Complexity(str, Enum):
-    LOW  = "low"   # → Ollama
-    HIGH = "high"  # → Bedrock
+    LOW          = "low"          # → Ollama qwen3:4b  (signal, risk — speed-critical)
+    HIGH         = "high"         # → Ollama qwen3:4b  (Bull, Bear — adversarial, fast)
+    HIGH_REASON  = "high_reason"  # → Ollama deepseek-r1:7b (Judge — reasoning-critical)
 
 
 class LLMRouter:
     """Routes prompts to the appropriate LLM backend."""
 
     def __init__(self) -> None:
-        self.ollama_model  = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:7b")
-        self.ollama_host   = os.getenv("OLLAMA_HOST",  "http://127.0.0.1:11434")
-        self.bedrock_model = os.getenv(
-            "BEDROCK_MODEL_ID",
-            "anthropic.claude-3-5-sonnet-20241022-v2:0",
-        )
-        self.aws_region = os.getenv("AWS_REGION", "us-east-1")
-        # AWS Bedrock is blocked — all calls go to Ollama regardless of complexity
+        self.ollama_model        = os.getenv("OLLAMA_MODEL",   "qwen3:4b")
+        self.ollama_reason_model = os.getenv("MONITOR_MODEL",  "deepseek-r1:7b")
+        self.ollama_host         = os.getenv("OLLAMA_HOST",    "http://127.0.0.1:11434")
+        self.bedrock_model       = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+        self.aws_region          = os.getenv("AWS_REGION", "us-east-1")
+        # AWS Bedrock is disabled — all calls route to local Ollama
         self.use_aws: bool = False
 
         # Cached clients — created once, reused across all calls
         self._ollama_client: ollama.Client = ollama.Client(host=self.ollama_host)
         self._bedrock: ChatBedrock | None = None
+
+        # Warmup deepseek-r1:7b at startup so first Judge call is not cold
+        self._warmup_reason_model()
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
@@ -58,18 +60,39 @@ class LLMRouter:
         model_override: str | None = None,
     ) -> str:
         """
-        Run a chat completion and return the assistant text.
-        model_override replaces the default Ollama model for this call only.
+        Route a completion to the appropriate model:
+          LOW / HIGH      → qwen3:4b  (fast, signal/risk/bull/bear)
+          HIGH_REASON     → deepseek-r1:7b (Judge — chain-of-thought reasoning)
+          model_override  → bypasses routing for this call only
         """
+        if complexity == Complexity.HIGH_REASON:
+            return self._ollama_complete(
+                system, user, max_tokens, schema=schema,
+                model_override=self.ollama_reason_model,
+            )
         if complexity == Complexity.HIGH and self.use_aws:
             return self._bedrock_complete(system, user, max_tokens, schema=schema)
         return self._ollama_complete(system, user, max_tokens, schema=schema, model_override=model_override)
 
     def model_tag(self, complexity: Complexity) -> str:
         """Return a short label for the model used (stored on the signal)."""
+        if complexity == Complexity.HIGH_REASON:
+            return f"ollama/{self.ollama_reason_model}"
         if complexity == Complexity.HIGH and self.use_aws:
             return f"bedrock/{self.bedrock_model.split('.')[-1]}"
         return f"ollama/{self.ollama_model}"
+
+    def _warmup_reason_model(self) -> None:
+        """Pre-load deepseek-r1:7b into memory so first Judge call is not cold."""
+        try:
+            self._ollama_client.chat(
+                model=self.ollama_reason_model,
+                messages=[{"role": "user", "content": "hi"}],
+                options={"num_predict": 1, "num_ctx": 512},
+            )
+            log.info("router.warmup_complete", model=self.ollama_reason_model)
+        except Exception as exc:
+            log.warning("router.warmup_failed", model=self.ollama_reason_model, error=str(exc))
 
     # ── Ollama (local) ─────────────────────────────────────────────────────────
 

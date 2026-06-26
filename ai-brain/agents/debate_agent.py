@@ -190,10 +190,12 @@ class DebateAgent:
         judge_raw = self.router.complete(
             system=JUDGE_SYSTEM,
             user=judge_prompt,
-            complexity=Complexity.HIGH,
-            max_tokens=350,
+            complexity=Complexity.HIGH_REASON,  # deepseek-r1:7b — chain-of-thought reasoning
+            max_tokens=600,
             schema=DebateResult,
         )
+        # Strip deepseek-r1 chain-of-thought tokens before JSON parsing
+        judge_raw = re.sub(r'<think>.*?</think>', '', judge_raw, flags=re.DOTALL).strip()
 
         try:
             match = re.search(r'\{.*\}', judge_raw, re.DOTALL)
