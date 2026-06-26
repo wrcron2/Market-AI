@@ -231,6 +231,9 @@ Output ONLY raw JSON starting with { — no markdown, no explanation:
             if match:
                 json_str = match.group(0)
             data = json.loads(json_str)
+            if not isinstance(data, dict):
+                log.info("signal_agent.no_trade", symbol=symbol, reason="model returned null")
+                return None
             data.setdefault("strategy_name", self.strategy_name)
             signal = CandidateSignal(**data)
             log.info(
