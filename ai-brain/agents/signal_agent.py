@@ -247,7 +247,7 @@ Output ONLY raw JSON starting with { — no markdown, no explanation:
                 system=self.SYSTEM_PROMPT,
                 user=user_prompt,
                 complexity=Complexity.LOW,
-                max_tokens=700,
+                max_tokens=1200,  # increased — dual_momentum reasoning can be verbose
                 schema=CandidateSignal,
             )
             # Extract first JSON object if model added surrounding text
