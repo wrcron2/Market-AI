@@ -200,7 +200,7 @@ export function AlertsPanel() {
         <Bell size={14} style={{ color: '#60a5fa', flexShrink: 0 }} />
         <span style={{ fontSize: 12, color: '#64748b' }}>
           Email alerts sent to <span style={{ color: '#94a3b8', fontWeight: 600 }}>
-            {import.meta.env.VITE_ALERT_EMAIL || 'wrcron1@gmail.com'}
+{'wrcron1@gmail.com'}
           </span>
           &nbsp;— configure via <code style={{ color: '#f472b6' }}>ALERT_EMAIL_TO</code> env var.
         </span>
