@@ -87,6 +87,10 @@ export function Dashboard() {
         const { signal_id, error } = payload as { signal_id: string; error: string }
         pushEvent({ id: signal_id, type: 'failed', message: error, timestamp: Date.now() })
       },
+      debate_failed: (payload) => {
+        const { symbol, error } = payload as { symbol: string; error: string }
+        pushEvent({ id: symbol, type: 'debate_failed', message: error, timestamp: Date.now() })
+      },
       position_opened: () => {
         // AlpacaPortfolio self-refreshes; this just nudges the tab indicator
         if (activeTab !== 'portfolio') setActiveTab('portfolio')

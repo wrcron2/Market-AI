@@ -8,7 +8,7 @@ interface Props {
 
 export interface FeedEvent {
   id: string
-  type: 'staged' | 'approved' | 'rejected' | 'executed' | 'failed'
+  type: 'staged' | 'approved' | 'rejected' | 'executed' | 'failed' | 'debate_failed'
   order?: Partial<StagedOrder>
   message?: string
   timestamp: number
@@ -16,19 +16,21 @@ export interface FeedEvent {
 }
 
 const statusIcon: Record<FeedEvent['type'], JSX.Element> = {
-  staged:   <Clock size={14} className="feed-icon staged" />,
-  approved: <CheckCircle size={14} className="feed-icon approved" />,
-  rejected: <XCircle size={14} className="feed-icon rejected" />,
-  executed: <Zap size={14} className="feed-icon executed" />,
-  failed:   <XCircle size={14} className="feed-icon failed" />,
+  staged:        <Clock size={14} className="feed-icon staged" />,
+  approved:      <CheckCircle size={14} className="feed-icon approved" />,
+  rejected:      <XCircle size={14} className="feed-icon rejected" />,
+  executed:      <Zap size={14} className="feed-icon executed" />,
+  failed:        <XCircle size={14} className="feed-icon failed" />,
+  debate_failed: <XCircle size={14} className="feed-icon failed" />,
 }
 
 const statusLabel: Record<FeedEvent['type'], string> = {
-  staged:   'Staged',
-  approved: 'Approved',
-  rejected: 'Rejected',
-  executed: 'Executed',
-  failed:   'Failed',
+  staged:        'Staged',
+  approved:      'Approved',
+  rejected:      'Rejected',
+  executed:      'Executed',
+  failed:        'Failed',
+  debate_failed: '⚖️ Debate Failed',
 }
 
 /**

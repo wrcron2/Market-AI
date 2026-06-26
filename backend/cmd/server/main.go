@@ -401,6 +401,31 @@ func main() {
 		writeJSON(w, map[string]any{"orders": orders})
 	})
 
+	// ─── Debate failed event — brain broadcasts when Judge JSON parse fails ──────
+	mux.HandleFunc("/api/events/debate-failed", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Symbol string `json:"symbol"`
+			Error  string `json:"error"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		logger.Warn("debate failed — signal dropped silently",
+			zap.String("symbol", req.Symbol),
+			zap.String("error", req.Error),
+		)
+		hub.Broadcast("debate_failed", map[string]any{
+			"symbol": req.Symbol,
+			"error":  req.Error,
+		})
+		writeJSON(w, map[string]any{"received": true})
+	})
+
 	// ─── Audit log ───────────────────────────────────────────────────────────────
 	mux.HandleFunc("/api/orders/audit-log", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

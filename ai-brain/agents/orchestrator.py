@@ -114,7 +114,17 @@ class Orchestrator:
         try:
             debate = self.debate_agent.debate(state["signal"], state["market_snapshot"])
         except RuntimeError as exc:
-            log.warning("orchestrator.debate_failed", symbol=state["signal"].symbol, error=str(exc))
+            symbol = state["signal"].symbol
+            log.warning("orchestrator.debate_failed", symbol=symbol, error=str(exc))
+            # Broadcast to dashboard so operator knows signal was silently dropped
+            try:
+                httpx.post(
+                    f"{self._backend_base}/api/events/debate-failed",
+                    json={"symbol": symbol, "error": str(exc)},
+                    timeout=3,
+                )
+            except Exception:
+                pass  # never let broadcast failure kill the pipeline
             return {**state, "debate_result": None}
         return {**state, "debate_result": debate}
 
