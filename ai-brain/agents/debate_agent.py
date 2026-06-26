@@ -200,12 +200,20 @@ class DebateAgent:
         try:
             match = re.search(r'\{.*\}', judge_raw, re.DOTALL)
             judge_data = json.loads(match.group(0) if match else judge_raw)
+            raw_direction = judge_data["consensus_direction"].upper()
+            allowed = {"BUY", "SELL", "SHORT", "COVER"}
+            if raw_direction not in allowed:
+                log.warning("debate_agent.invalid_direction",
+                            symbol=signal.symbol, raw=raw_direction,
+                            fallback=signal.direction)
+                raw_direction = signal.direction  # fall back to original signal direction
+
             result = DebateResult(
                 bull_argument=bull_arg,
                 bear_argument=bear_arg,
                 judge_reasoning=judge_data["judge_reasoning"],
                 adjusted_confidence=float(judge_data["adjusted_confidence"]),
-                consensus_direction=judge_data["consensus_direction"].upper(),
+                consensus_direction=raw_direction,
             )
             log.info(
                 "debate_agent.complete",
