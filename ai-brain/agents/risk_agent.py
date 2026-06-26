@@ -93,8 +93,36 @@ class RiskAgent:
 
     def __init__(self, router: LLMRouter) -> None:
         self.router = router
-        self.min_confidence = float(os.getenv("MIN_SIGNAL_CONFIDENCE", "0.90"))
-        self.max_quantity   = float(os.getenv("RISK_MAX_QUANTITY", "10000"))
+        self.min_confidence      = float(os.getenv("MIN_SIGNAL_CONFIDENCE", "0.70"))
+        self.max_quantity        = float(os.getenv("RISK_MAX_QUANTITY", "10000"))
+        self._backend_base       = f"http://{os.getenv('BRAIN_HOST','127.0.0.1')}:{os.getenv('GO_SERVER_PORT','8080')}"
+        self._threshold_cache: dict[str, float] = {}  # (strategy:bucket:spy_trend) → min_confidence
+        self._cache_refreshed_at: float = 0.0
+
+    def _get_dynamic_threshold(self, strategy: str, confidence: float, spy_trend: str) -> float:
+        """
+        Return calibrated min_confidence from threshold_store if available.
+        Falls back to MIN_SIGNAL_CONFIDENCE env var. Cache refreshes every 30 min.
+        """
+        import time as _time
+        now = _time.time()
+        if now - self._cache_refreshed_at > 1800:  # refresh every 30 min
+            try:
+                resp = __import__("httpx").get(f"{self._backend_base}/api/thresholds", timeout=3)
+                if resp.status_code == 200:
+                    self._threshold_cache = {
+                        f"{t['strategy_name']}:{t['confidence_bucket']}:{t['spy_trend']}": t['min_confidence']
+                        for t in resp.json().get("thresholds", [])
+                    }
+                    self._cache_refreshed_at = now
+                    log.info("risk_agent.thresholds_refreshed", count=len(self._threshold_cache))
+            except Exception:
+                pass  # keep existing cache on failure
+
+        from agents.outcome_checker import ThresholdCalibrator
+        bucket = ThresholdCalibrator._confidence_bucket(confidence)
+        key = f"{strategy}:{bucket}:{spy_trend}"
+        return self._threshold_cache.get(key, self.min_confidence)
 
     def assess(
         self,
@@ -174,10 +202,15 @@ class RiskAgent:
             is_blocked   = data.get("is_blocked", False)
             block_reason = data.get("block_reason", "")
 
-            if not is_blocked and final_conf < self.min_confidence:
+            spy_trend = market_snapshot.get("market_context", {}).get("spy_trend", "sideways")
+            effective_threshold = self._get_dynamic_threshold(
+                signal.strategy_name, debate.adjusted_confidence, spy_trend
+            )
+            if not is_blocked and final_conf < effective_threshold:
                 is_blocked = True
                 block_reason = (
-                    f"Post-risk confidence {final_conf:.0%} below minimum threshold {self.min_confidence:.0%}"
+                    f"Post-risk confidence {final_conf:.0%} below threshold {effective_threshold:.0%} "
+                    f"(strategy={signal.strategy_name}, spy={spy_trend})"
                 )
 
             result = RiskAssessment(

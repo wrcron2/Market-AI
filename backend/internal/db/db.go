@@ -693,6 +693,73 @@ func scanPosition(s scanner) (*Position, error) {
 	return p, nil
 }
 
+// ─── Threshold Store ──────────────────────────────────────────────────────────
+
+// ThresholdEntry is one calibrated confidence threshold for a strategy/bucket/regime.
+type ThresholdEntry struct {
+	StrategyName     string  `json:"strategy_name"`
+	ConfidenceBucket string  `json:"confidence_bucket"`
+	SpyTrend         string  `json:"spy_trend"`
+	SampleCount      int     `json:"sample_count"`
+	WinRate          float64 `json:"win_rate"`
+	MinConfidence    float64 `json:"min_confidence"`
+	UpdatedAt        int64   `json:"updated_at"`
+}
+
+// UpsertThreshold inserts or updates a calibrated threshold entry.
+func (d *DB) UpsertThreshold(t ThresholdEntry) error {
+	_, err := d.Exec(`
+		INSERT INTO threshold_store
+			(strategy_name, confidence_bucket, spy_trend, sample_count, win_rate, min_confidence, updated_at)
+		VALUES (?,?,?,?,?,?,?)
+		ON CONFLICT(strategy_name, confidence_bucket, spy_trend)
+		DO UPDATE SET
+			sample_count   = excluded.sample_count,
+			win_rate       = excluded.win_rate,
+			min_confidence = excluded.min_confidence,
+			updated_at     = excluded.updated_at`,
+		t.StrategyName, t.ConfidenceBucket, t.SpyTrend,
+		t.SampleCount, t.WinRate, t.MinConfidence, time.Now().UnixMilli(),
+	)
+	return err
+}
+
+// GetThreshold returns the calibrated min_confidence for a strategy/bucket/regime.
+// Returns the fallback value if no entry exists or sample count < minSamples.
+func (d *DB) GetThreshold(strategyName, confidenceBucket, spyTrend string, fallback float64, minSamples int) float64 {
+	var sampleCount int
+	var minConf float64
+	err := d.QueryRow(`
+		SELECT sample_count, min_confidence FROM threshold_store
+		WHERE strategy_name=? AND confidence_bucket=? AND spy_trend=?`,
+		strategyName, confidenceBucket, spyTrend,
+	).Scan(&sampleCount, &minConf)
+	if err != nil || sampleCount < minSamples {
+		return fallback
+	}
+	return minConf
+}
+
+// ListThresholds returns all calibrated threshold entries.
+func (d *DB) ListThresholds() ([]*ThresholdEntry, error) {
+	rows, err := d.Query(`
+		SELECT strategy_name, confidence_bucket, spy_trend, sample_count, win_rate, min_confidence, updated_at
+		FROM threshold_store ORDER BY strategy_name, confidence_bucket, spy_trend`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var entries []*ThresholdEntry
+	for rows.Next() {
+		t := &ThresholdEntry{}
+		if err := rows.Scan(&t.StrategyName, &t.ConfidenceBucket, &t.SpyTrend,
+			&t.SampleCount, &t.WinRate, &t.MinConfidence, &t.UpdatedAt); err == nil {
+			entries = append(entries, t)
+		}
+	}
+	return entries, nil
+}
+
 // ─── Embedded Schema ──────────────────────────────────────────────────────────
 
 const schema = `
@@ -786,4 +853,16 @@ CREATE TABLE IF NOT EXISTS signal_outcomes (
 
 CREATE INDEX IF NOT EXISTS idx_signal_outcomes_check
     ON signal_outcomes (check_5d_at, outcome_5d);
+
+CREATE TABLE IF NOT EXISTS threshold_store (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    strategy_name    TEXT NOT NULL,
+    confidence_bucket TEXT NOT NULL,  -- e.g. "0.70-0.75", "0.75-0.80"
+    spy_trend        TEXT NOT NULL,   -- "uptrend" | "downtrend" | "sideways"
+    sample_count     INTEGER NOT NULL DEFAULT 0,
+    win_rate         REAL NOT NULL DEFAULT 0.0,
+    min_confidence   REAL NOT NULL DEFAULT 0.70,
+    updated_at       INTEGER NOT NULL,
+    UNIQUE(strategy_name, confidence_bucket, spy_trend)
+);
 `

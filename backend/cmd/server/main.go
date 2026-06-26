@@ -401,6 +401,34 @@ func main() {
 		writeJSON(w, map[string]any{"orders": orders})
 	})
 
+	// ─── Threshold Store — adaptive confidence floors ─────────────────────────────
+	mux.HandleFunc("/api/thresholds", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			entries, err := database.ListThresholds()
+			if err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"thresholds": entries})
+
+		case http.MethodPost:
+			var req db.ThresholdEntry
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+			if err := database.UpsertThreshold(req); err != nil {
+				http.Error(w, "upsert failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			writeJSON(w, map[string]any{"success": true})
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
 	// ─── Debate failed event — brain broadcasts when Judge JSON parse fails ──────
 	mux.HandleFunc("/api/events/debate-failed", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

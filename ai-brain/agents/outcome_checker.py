@@ -28,9 +28,11 @@ class OutcomeChecker:
 
     def run_forever(self) -> None:
         log.info("outcome_checker.started", interval=CHECK_INTERVAL_SECONDS)
+        calibrator = ThresholdCalibrator(self._client.base_url)
         while True:
             try:
                 self._check_pending()
+                calibrator.calibrate()  # dormant until MIN_SAMPLES_PER_BUCKET reached
             except Exception as exc:
                 log.error("outcome_checker.error", error=str(exc))
             time.sleep(CHECK_INTERVAL_SECONDS)
@@ -120,3 +122,82 @@ class OutcomeChecker:
             "return_pct": ret,
             "outcome":    outcome,
         })
+
+
+# ── Threshold Calibrator ────────────────────────────────────────────────────────
+
+MIN_SAMPLES_PER_BUCKET = 30   # activation gate — never calibrate on fewer samples
+WIN_RATE_TARGET        = 0.55  # minimum win rate to keep trading a bucket
+FALLBACK_CONFIDENCE    = 0.70  # default when no calibration data exists
+
+
+class ThresholdCalibrator:
+    """
+    Reads signal_outcomes, computes win rate per (strategy, confidence_bucket, spy_trend),
+    and pushes calibrated min_confidence thresholds to the backend threshold_store.
+
+    Runs after every OutcomeChecker cycle. Dormant until MIN_SAMPLES_PER_BUCKET
+    is reached for a given bucket — never calibrates on noise.
+    """
+
+    def __init__(self, backend_url: str) -> None:
+        self._client = httpx.Client(base_url=backend_url, timeout=15)
+
+    def calibrate(self) -> None:
+        """Fetch all outcomes and push updated thresholds for any bucket with enough data."""
+        try:
+            resp = self._client.get("/api/signal-outcomes/all")
+            if resp.status_code != 200:
+                return
+            outcomes = resp.json().get("outcomes", [])
+            if not outcomes:
+                return
+
+            # Group by (strategy, confidence_bucket, spy_trend)
+            buckets: dict[tuple, list[str]] = {}
+            for o in outcomes:
+                if not o.get("outcome_5d"):
+                    continue  # skip unresolved outcomes
+                strategy  = o.get("strategy_name", "unknown")
+                confidence = float(o.get("confidence", 0.70))
+                spy_trend  = o.get("spy_trend", "sideways")
+                bucket     = self._confidence_bucket(confidence)
+                key        = (strategy, bucket, spy_trend)
+                buckets.setdefault(key, []).append(o["outcome_5d"])
+
+            for (strategy, bucket, spy_trend), outcomes_list in buckets.items():
+                n = len(outcomes_list)
+                if n < MIN_SAMPLES_PER_BUCKET:
+                    log.debug("threshold_calibrator.bucket_too_small",
+                              strategy=strategy, bucket=bucket, spy_trend=spy_trend, n=n)
+                    continue
+
+                win_rate = sum(1 for o in outcomes_list if o == "TRUE_POSITIVE") / n
+                # If win rate is above target → lower the threshold (more permissive)
+                # If win rate is below target → raise the threshold (more selective)
+                if win_rate >= WIN_RATE_TARGET:
+                    new_threshold = max(FALLBACK_CONFIDENCE - 0.05, 0.60)
+                else:
+                    new_threshold = min(FALLBACK_CONFIDENCE + 0.05, 0.85)
+
+                self._client.post("/api/thresholds", json={
+                    "strategy_name":     strategy,
+                    "confidence_bucket": bucket,
+                    "spy_trend":         spy_trend,
+                    "sample_count":      n,
+                    "win_rate":          round(win_rate, 4),
+                    "min_confidence":    round(new_threshold, 4),
+                })
+                log.info("threshold_calibrator.updated",
+                         strategy=strategy, bucket=bucket, spy_trend=spy_trend,
+                         n=n, win_rate=round(win_rate, 3), new_threshold=new_threshold)
+
+        except Exception as exc:
+            log.warning("threshold_calibrator.error", error=str(exc))
+
+    @staticmethod
+    def _confidence_bucket(confidence: float) -> str:
+        """Map confidence to a 0.05-wide bucket string."""
+        lower = round(int(confidence * 20) / 20, 2)
+        upper = round(lower + 0.05, 2)
+        return f"{lower:.2f}-{upper:.2f}"
