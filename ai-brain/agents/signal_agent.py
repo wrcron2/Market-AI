@@ -88,7 +88,10 @@ stop_distance = atr_14 × 2.0
 shares = int(dollar_risk / stop_distance)
 Cap: min(shares, 20) — ETFs are expensive ($300-500/share), max 20 shares per position.
 
-== NO-TRADE CONDITIONS (output null immediately) ==
+== NO-TRADE CONDITIONS (output the single word null — NOT a JSON object) ==
+CRITICAL: When any condition below is true, output ONLY the word null with no JSON wrapper.
+Do NOT output {"confidence": 0.0, ...} — that is wrong. Output: null
+
 - Symbol NOT in [QQQ, GLD, TLT, EEM, XLE]
 - close < sma_50
 - close < high_52w × 0.98
