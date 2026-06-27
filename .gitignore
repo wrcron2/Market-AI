@@ -21,9 +21,9 @@ frontend/dist/
 frontend/.vite/
 
 # Database
-infra/db/*.db
-infra/db/*.db-shm
-infra/db/*.db-wal
+**/marketflow.db
+**/marketflow.db-shm
+**/marketflow.db-wal
 
 # Version history (generated at deploy time — don't wipe with git clean)
 infra/versions/history
