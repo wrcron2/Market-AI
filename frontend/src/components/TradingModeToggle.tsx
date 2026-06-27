@@ -9,104 +9,67 @@ interface Props {
 }
 
 /**
- * TradingModeToggle — Yahoo Finance simulation ↔ IBKR real trading switch.
- *
- * Layout:   Yahoo  [●──────]  IBKR
- *           (OFF)            (ON)
- *
- * - Yahoo mode (OFF/left): uses yfinance data + simulated order execution.
- *   No real money at risk. No API key required — yfinance is free.
- * - IBKR mode (ON/right):  uses live IBKR TWS data + real order execution
- *   through the Green Light gate.
+ * TradingModeToggle — Yahoo Finance simulation ↔ IBKR real trading.
+ * Yahoo (left): yfinance data + simulated execution, no real money.
+ * IBKR (right): live IBKR data + real execution through the Green Light gate.
  */
 export function TradingModeToggle({ mode, onChange, disabled = false }: Props) {
   const isIBKR = mode === 'ibkr'
-
-  const handleToggle = () => {
-    if (disabled) return
-    onChange(isIBKR ? 'yahoo' : 'ibkr')
-  }
-
   return (
-    <div className={`mode-toggle-wrapper ${disabled ? 'mode-toggle-disabled' : ''}`}>
-      {/* Yahoo label */}
-      <span className={`mode-label mode-label-yahoo ${!isIBKR ? 'mode-label-active' : ''}`}>
-        Yahoo
-      </span>
-
-      {/* Toggle track + thumb */}
+    <div className="flex gap-2.5">
       <button
-        role="switch"
-        aria-checked={isIBKR}
-        aria-label="Switch between Yahoo Finance simulation and IBKR live trading"
-        className={`mode-toggle-track ${isIBKR ? 'mode-toggle-on' : 'mode-toggle-off'}`}
-        onClick={handleToggle}
         disabled={disabled}
+        onClick={() => onChange('yahoo')}
+        className={`flex-1 rounded-lg border px-3 py-2.5 text-center text-[13px] font-semibold transition-colors disabled:opacity-50 ${
+          !isIBKR ? 'border-signal-blue bg-signal-blue/10 text-blue-200' : 'border-line-soft text-ink-faint hover:border-line'
+        }`}
       >
-        <span className="mode-toggle-thumb" />
+        🧪 Yahoo · Sim
       </button>
-
-      {/* IBKR label */}
-      <span className={`mode-label mode-label-ibkr ${isIBKR ? 'mode-label-active' : ''}`}>
-        IBKR
-      </span>
-
-      {/* Mode pill badge */}
-      {isIBKR ? (
-        <span className="mode-pill mode-pill-live">⚡ LIVE</span>
-      ) : (
-        <span className="mode-pill mode-pill-sim">🧪 SIM</span>
-      )}
+      <button
+        disabled={disabled}
+        onClick={() => onChange('ibkr')}
+        className={`flex-1 rounded-lg border px-3 py-2.5 text-center text-[13px] font-semibold transition-colors disabled:opacity-50 ${
+          isIBKR ? 'border-signal-red bg-signal-red/10 text-red-300' : 'border-line-soft text-ink-faint hover:border-line'
+        }`}
+      >
+        ⚡ IBKR · Live
+      </button>
     </div>
   )
 }
 
 /**
  * useTradingMode — manages mode state and syncs with the Go backend.
- *
- * The backend persists the mode so that if the page refreshes, the Python
- * brain is already using the correct data source and executor.
+ * The backend persists the mode so a refresh keeps the brain on the right source.
  */
 export function useTradingMode() {
   const [mode, setMode] = useState<TradingMode>('yahoo')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Fetch current mode from backend on mount
   useEffect(() => {
     fetch('/api/mode')
       .then((r) => r.json())
-      .then((data: { mode: TradingMode }) => {
-        setMode(data.mode ?? 'yahoo')
-      })
-      .catch(() => {
-        // Backend not yet up — default to yahoo (safe)
-        setMode('yahoo')
-      })
+      .then((data: { mode: TradingMode }) => setMode(data.mode ?? 'yahoo'))
+      .catch(() => setMode('yahoo'))
       .finally(() => setLoading(false))
   }, [])
 
-  // Push mode change to backend
   const changeMode = useCallback(async (next: TradingMode) => {
-    // Optimistic update
     setMode(next)
     setError(null)
-
     try {
       const res = await fetch('/api/mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: next }),
       })
-      if (!res.ok) {
-        const text = await res.text()
-        throw new Error(text)
-      }
+      if (!res.ok) throw new Error(await res.text())
       const data: { mode: TradingMode } = await res.json()
       setMode(data.mode)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update mode')
-      // Revert on failure
       setMode((prev) => (prev === 'ibkr' ? 'yahoo' : 'ibkr'))
     }
   }, [])

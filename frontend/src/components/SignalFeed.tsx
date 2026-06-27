@@ -1,6 +1,7 @@
 import type { JSX } from 'react'
 import { TrendingUp, TrendingDown, CheckCircle, XCircle, Zap, Clock } from 'lucide-react'
 import type { StagedOrder } from '../types'
+import { Card } from './ui/primitives'
 
 interface Props {
   events: FeedEvent[]
@@ -15,86 +16,68 @@ export interface FeedEvent {
   autoExecuted?: boolean
 }
 
-const statusIcon: Record<FeedEvent['type'], JSX.Element> = {
-  staged:        <Clock size={14} className="feed-icon staged" />,
-  approved:      <CheckCircle size={14} className="feed-icon approved" />,
-  rejected:      <XCircle size={14} className="feed-icon rejected" />,
-  executed:      <Zap size={14} className="feed-icon executed" />,
-  failed:        <XCircle size={14} className="feed-icon failed" />,
-  debate_failed: <XCircle size={14} className="feed-icon failed" />,
+const META: Record<FeedEvent['type'], { icon: JSX.Element; label: string; color: string }> = {
+  staged: { icon: <Clock size={14} />, label: 'Staged', color: 'text-signal-yellow' },
+  approved: { icon: <CheckCircle size={14} />, label: 'Approved', color: 'text-signal-blue' },
+  rejected: { icon: <XCircle size={14} />, label: 'Rejected', color: 'text-signal-red' },
+  executed: { icon: <Zap size={14} />, label: 'Executed', color: 'text-signal-green' },
+  failed: { icon: <XCircle size={14} />, label: 'Failed', color: 'text-signal-red' },
+  debate_failed: { icon: <XCircle size={14} />, label: 'Debate Failed', color: 'text-ink-muted' },
 }
 
-const statusLabel: Record<FeedEvent['type'], string> = {
-  staged:        'Staged',
-  approved:      'Approved',
-  rejected:      'Rejected',
-  executed:      'Executed',
-  failed:        'Failed',
-  debate_failed: '⚖️ Debate Failed',
-}
-
-/**
- * SignalFeed — a real-time, reverse-chronological log of all signal events
- * broadcast over the WebSocket connection.
- */
+/** SignalFeed — real-time, reverse-chronological log of all signal events. */
 export function SignalFeed({ events }: Props) {
   return (
-    <div className="signal-feed">
-      <h2 className="panel-title">Live Signal Feed</h2>
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-line-soft px-4 py-3.5">
+        <span className="h-2 w-2 animate-pulse-dot rounded-full bg-signal-green" />
+        <span className="text-sm font-semibold">Live Signal Feed</span>
+      </div>
       {events.length === 0 ? (
-        <p className="feed-empty">Waiting for signals…</p>
+        <p className="px-4 py-10 text-center text-sm text-ink-faint">Waiting for signals…</p>
       ) : (
-        <ul className="feed-list">
+        <div className="mf-scroll max-h-[640px] divide-y divide-line-faint overflow-y-auto">
           {events.map((ev) => (
             <FeedItem key={`${ev.id}-${ev.type}`} event={ev} />
           ))}
-        </ul>
+        </div>
       )}
-    </div>
+    </Card>
   )
 }
 
 function FeedItem({ event }: { event: FeedEvent }) {
   const { order } = event
   const isBuy = order?.direction === 'BUY' || order?.direction === 'COVER'
+  const m = META[event.type]
   const time = new Date(event.timestamp).toLocaleTimeString()
 
   return (
-    <li className={`feed-item ${event.type}`}>
-      <span className="feed-time">{time}</span>
-      {statusIcon[event.type]}
-      <span className="feed-status">{statusLabel[event.type]}</span>
+    <div className="flex items-center gap-2.5 px-4 py-3">
+      <span className="w-[58px] shrink-0 font-mono text-[11px] text-ink-faint">{time}</span>
+      <span className={m.color}>{m.icon}</span>
+      <span className="text-[13px] text-ink-muted">{m.label}</span>
       {order?.symbol && (
         <>
-          <span className="feed-symbol">{order.symbol}</span>
+          <span className="font-mono text-[13px] font-bold">{order.symbol}</span>
+          {order.direction &&
+            (isBuy ? (
+              <TrendingUp size={12} className="text-signal-green" />
+            ) : (
+              <TrendingDown size={12} className="text-signal-red" />
+            ))}
           {order.direction && (
-            isBuy
-              ? <TrendingUp size={12} className="dir-up" />
-              : <TrendingDown size={12} className="dir-down" />
-          )}
-          {order.direction && (
-            <span className={`feed-dir ${order.direction.toLowerCase()}`}>
+            <span className={`mf-chip ${isBuy ? 'bg-signal-green/15 text-emerald-400' : 'bg-signal-red/15 text-red-400'}`}>
               {order.direction}
             </span>
           )}
-          {order.quantity && (
-            <span className="feed-qty">{order.quantity.toLocaleString()}</span>
+          {order.quantity != null && (
+            <span className="font-mono text-[12px] text-ink-faint">{order.quantity.toLocaleString()}</span>
           )}
         </>
       )}
-      {event.autoExecuted && (
-        <span style={{
-          background: '#7c3aed22',
-          color: '#a78bfa',
-          border: '1px solid #7c3aed55',
-          borderRadius: 4,
-          padding: '1px 6px',
-          fontSize: 10,
-          fontWeight: 700,
-          marginRight: 4,
-        }}>⚡ AUTO</span>
-      )}
-      {event.message && <span className="feed-msg">{event.message}</span>}
-    </li>
+      {event.autoExecuted && <span className="mf-chip bg-signal-purple/15 text-violet-300">⚡ AUTO</span>}
+      {event.message && <span className="truncate text-[12px] text-ink-faint">{event.message}</span>}
+    </div>
   )
 }
