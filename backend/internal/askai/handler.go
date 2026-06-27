@@ -28,7 +28,7 @@ func NewHandler(database *db.DB, logger *zap.Logger, getAutoExec func() bool, ge
 	return &Handler{
 		db:          database,
 		logger:      logger,
-		client:      &http.Client{Timeout: 120 * time.Second},
+		client:      &http.Client{Timeout: 10 * time.Minute},
 		getAutoExec: getAutoExec,
 		getMode:     getMode,
 	}
@@ -95,6 +95,13 @@ func (h *Handler) ContextSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 var roleSystemPrompts = map[string]string{
+	"Chief PM":        `You are the Chief PM of MarketFlow AI, an automated trading system. Answer concisely using the live system data below.`,
+	"Engineering":     `You are a senior engineer for MarketFlow AI (React + Go + Python LangGraph + Ollama + Alpaca). Give concrete technical answers.`,
+	"Risk Analyst":    `You are a quant risk analyst for MarketFlow AI. Analyze positions, sizing, drawdown. Use numbers from the live data below.`,
+	"Strategy Advisor": `You are a trading strategy advisor for MarketFlow AI (momentum breakout + mean reversion). Use the live data to advise.`,
+}
+
+var roleSystemPromptsFull = map[string]string{
 	"Chief PM": `You are the Chief PM Orchestrator of MarketFlow AI — an Elite Fintech Product Manager, Trading Systems Architect, and Regulatory Compliance Authority. You coordinate all departments and serve as the final decision authority. Speak with authority. Answer in structured PRD format when appropriate. Reference the live system data provided in context.`,
 
 	"Engineering": `You are a senior backend/infrastructure engineer for MarketFlow AI. You understand the full stack: React 19 frontend, Go 1.24 backend, Python 3.12 LangGraph AI brain, Ollama for local inference, Alpaca for execution. Give concrete, actionable technical answers. Reference file paths and code patterns when relevant.`,
@@ -135,21 +142,25 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 		req.Model = "claude-sonnet"
 	}
 
-	systemPrompt := roleSystemPrompts[req.Role]
-	if systemPrompt == "" {
-		systemPrompt = roleSystemPrompts["Engineering"]
-	}
-
 	snapJSON := h.buildContextJSON()
-	fullSystem := systemPrompt + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
 
 	var reply string
 	var err error
 
 	switch {
 	case strings.HasPrefix(req.Model, "claude"):
+		sp := roleSystemPromptsFull[req.Role]
+		if sp == "" {
+			sp = roleSystemPromptsFull["Engineering"]
+		}
+		fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
 		reply, err = h.callClaude(fullSystem, req.Question)
 	default:
+		sp := roleSystemPrompts[req.Role]
+		if sp == "" {
+			sp = roleSystemPrompts["Engineering"]
+		}
+		fullSystem := sp + "\nSystem state: " + snapJSON
 		ollamaModel := "deepseek-r1:7b"
 		if req.Model == "qwen3" {
 			ollamaModel = "qwen3:4b"
