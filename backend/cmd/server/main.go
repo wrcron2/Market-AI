@@ -823,7 +823,7 @@ func main() {
 		Addr:         ":" + httpPort,
 		Handler:      corsMiddleware(mux),
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		WriteTimeout: 0,
 	}
 
 	// ─── gRPC Server (Signal ingestion from AI Brain) ─────────────────────────
