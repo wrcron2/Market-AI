@@ -163,7 +163,7 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 				sp = roleSystemPromptsFull["Engineering"]
 			}
 			fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
-			reply, err = h.callGroq(groqKey, "deepseek-r1-distill-llama-70b", fullSystem, req.Question)
+			reply, err = h.callGroq(groqKey, "llama-3.3-70b-versatile", fullSystem, req.Question)
 		} else {
 			sp := roleSystemPrompts[req.Role]
 			if sp == "" {
@@ -172,6 +172,24 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 			fullSystem := sp + "\n" + h.buildMiniContext()
 			reply, err = h.callOllama("deepseek-r1:7b", fullSystem, req.Question)
 		}
+	case req.Model == "qwen3":
+		groqKey := os.Getenv("GROQ_API_KEY")
+		if groqKey != "" {
+			sp := roleSystemPromptsFull[req.Role]
+			if sp == "" {
+				sp = roleSystemPromptsFull["Engineering"]
+			}
+			fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
+			reply, err = h.callGroq(groqKey, "qwen/qwen3-32b", fullSystem, req.Question)
+			reply = stripThinkTags(reply)
+		} else {
+			sp := roleSystemPrompts[req.Role]
+			if sp == "" {
+				sp = roleSystemPrompts["Engineering"]
+			}
+			fullSystem := sp + "\n" + h.buildMiniContext()
+			reply, err = h.callOllama("qwen3:4b", fullSystem, req.Question)
+		}
 	default:
 		sp := roleSystemPrompts[req.Role]
 		if sp == "" {
@@ -179,8 +197,7 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 		}
 		miniSnap := h.buildMiniContext()
 		fullSystem := sp + "\n" + miniSnap
-		ollamaModel := "qwen3:4b"
-		reply, err = h.callOllama(ollamaModel, fullSystem, req.Question)
+		reply, err = h.callOllama("qwen3:4b", fullSystem, req.Question)
 	}
 
 	if err != nil {
@@ -327,6 +344,22 @@ func (h *Handler) callOllama(model, system, question string) (string, error) {
 		return "", fmt.Errorf("failed to parse ollama response: %w", err)
 	}
 	return result.Message.Content, nil
+}
+
+func stripThinkTags(s string) string {
+	for {
+		start := strings.Index(s, "<think>")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(s, "</think>")
+		if end == -1 {
+			s = s[:start]
+			break
+		}
+		s = s[:start] + s[end+len("</think>"):]
+	}
+	return strings.TrimSpace(s)
 }
 
 func (h *Handler) callGroq(apiKey, model, system, question string) (string, error) {
