@@ -155,6 +155,23 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 		}
 		fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
 		reply, err = h.callClaude(fullSystem, req.Question)
+	case req.Model == "deepseek-r1":
+		groqKey := os.Getenv("GROQ_API_KEY")
+		if groqKey != "" {
+			sp := roleSystemPromptsFull[req.Role]
+			if sp == "" {
+				sp = roleSystemPromptsFull["Engineering"]
+			}
+			fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
+			reply, err = h.callGroq(groqKey, "deepseek-r1-distill-llama-70b", fullSystem, req.Question)
+		} else {
+			sp := roleSystemPrompts[req.Role]
+			if sp == "" {
+				sp = roleSystemPrompts["Engineering"]
+			}
+			fullSystem := sp + "\n" + h.buildMiniContext()
+			reply, err = h.callOllama("deepseek-r1:7b", fullSystem, req.Question)
+		}
 	default:
 		sp := roleSystemPrompts[req.Role]
 		if sp == "" {
@@ -162,10 +179,7 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 		}
 		miniSnap := h.buildMiniContext()
 		fullSystem := sp + "\n" + miniSnap
-		ollamaModel := "deepseek-r1:7b"
-		if req.Model == "qwen3" {
-			ollamaModel = "qwen3:4b"
-		}
+		ollamaModel := "qwen3:4b"
 		reply, err = h.callOllama(ollamaModel, fullSystem, req.Question)
 	}
 
@@ -313,6 +327,48 @@ func (h *Handler) callOllama(model, system, question string) (string, error) {
 		return "", fmt.Errorf("failed to parse ollama response: %w", err)
 	}
 	return result.Message.Content, nil
+}
+
+func (h *Handler) callGroq(apiKey, model, system, question string) (string, error) {
+	body := map[string]any{
+		"model":      model,
+		"max_tokens": 2048,
+		"messages": []map[string]string{
+			{"role": "system", "content": system},
+			{"role": "user", "content": question},
+		},
+	}
+	b, _ := json.Marshal(body)
+
+	req, _ := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("groq request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("groq API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to parse groq response: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("empty groq response")
+	}
+	return result.Choices[0].Message.Content, nil
 }
 
 func easternTime() *time.Location {
