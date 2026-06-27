@@ -12,6 +12,8 @@ services:
     volumes:
       - ./infra/db:/app/db               # persist SQLite on host
       - ./infra/versions:/app/versions   # version history + switch requests
+      - ./agents:/app/agents             # pipeline agent prompts
+      - ./logs:/app/logs                 # pipeline agent logs
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
