@@ -73,11 +73,11 @@ export function Sidebar({ collapsed, active, pendingCount, mode, onNavigate, onT
       </div>
 
       {/* Nav */}
-      <nav className="mf-scroll flex-1 overflow-y-auto overflow-x-hidden px-2.5 py-2.5">
+      <nav className="mf-scroll flex-1 overflow-y-auto px-2.5 py-2.5">
         {groups.map((g) => (
           <div key={g.label}>
             {!collapsed && (
-              <div className="px-2 pb-1.5 pt-3.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
+              <div className="px-2.5 pb-1.5 pt-3.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600">
                 {g.label}
               </div>
             )}

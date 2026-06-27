@@ -49,7 +49,7 @@ export function TopBar({
       </div>
 
       {/* Center status pills */}
-      <div className="flex min-w-0 flex-1 items-center justify-center gap-2 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1.5">
         <Pill tone="green" className="hidden md:inline-flex">
           <StatusDot color="#22c55e" />
           Market Open
