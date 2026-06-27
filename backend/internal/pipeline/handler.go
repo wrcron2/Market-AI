@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,6 +120,9 @@ func (h *Handler) RunScout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req struct{ Model string `json:"model"` }
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
 	h.mu.Lock()
 	if h.scoutRunning {
 		h.mu.Unlock()
@@ -128,7 +132,7 @@ func (h *Handler) RunScout(w http.ResponseWriter, r *http.Request) {
 	h.scoutRunning = true
 	h.mu.Unlock()
 
-	go h.runAgent("Scout", filepath.Join(h.projectRoot, "agents", "scout-agent-prompt.md"), func() {
+	go h.runAgent("Scout", filepath.Join(h.projectRoot, "agents", "scout-agent-prompt.md"), req.Model, func() {
 		h.mu.Lock()
 		h.scoutRunning = false
 		now := time.Now()
@@ -136,7 +140,7 @@ func (h *Handler) RunScout(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	})
 
-	writeJSON(w, map[string]any{"started": true})
+	writeJSON(w, map[string]any{"started": true, "model": req.Model})
 }
 
 // RunResearch handles POST /api/pipeline/run/research
@@ -147,6 +151,9 @@ func (h *Handler) RunResearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var req struct{ Model string `json:"model"` }
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
 	h.mu.Lock()
 	if h.researchRunning {
 		h.mu.Unlock()
@@ -156,7 +163,7 @@ func (h *Handler) RunResearch(w http.ResponseWriter, r *http.Request) {
 	h.researchRunning = true
 	h.mu.Unlock()
 
-	go h.runAgent("Research", filepath.Join(h.projectRoot, "agents", "research-agent-prompt.md"), func() {
+	go h.runAgent("Research", filepath.Join(h.projectRoot, "agents", "research-agent-prompt.md"), req.Model, func() {
 		h.mu.Lock()
 		h.researchRunning = false
 		now := time.Now()
@@ -164,7 +171,7 @@ func (h *Handler) RunResearch(w http.ResponseWriter, r *http.Request) {
 		h.mu.Unlock()
 	})
 
-	writeJSON(w, map[string]any{"started": true})
+	writeJSON(w, map[string]any{"started": true, "model": req.Model})
 }
 
 // Logs handles GET /api/pipeline/logs — returns last 50 lines of logs/scout.log.
@@ -180,7 +187,7 @@ func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 
 // runAgent reads the prompt file at promptPath and runs `claude -p <prompt>` as a subprocess,
 // appending output to logs/scout.log. onDone is called when the process exits.
-func (h *Handler) runAgent(name, promptPath string, onDone func()) {
+func (h *Handler) runAgent(name, promptPath, model string, onDone func()) {
 	defer onDone()
 
 	logFile := filepath.Join(h.projectRoot, "logs", "scout.log")
@@ -193,7 +200,7 @@ func (h *Handler) runAgent(name, promptPath string, onDone func()) {
 	}
 	defer f.Close()
 
-	fmt.Fprintf(f, "\n=== %s Agent — manual run triggered at %s ===\n", name, time.Now().Format(time.RFC3339))
+	fmt.Fprintf(f, "\n=== %s Agent — manual run triggered at %s (model: %s) ===\n", name, time.Now().Format(time.RFC3339), model)
 
 	promptBytes, err := os.ReadFile(promptPath)
 	if err != nil {
@@ -202,13 +209,17 @@ func (h *Handler) runAgent(name, promptPath string, onDone func()) {
 		return
 	}
 
-	// claude -p "<prompt>" reads the prompt from the flag argument
-	cmd := exec.Command("claude", "-p", string(promptBytes))
+	cliModel := mapModelToCLI(model)
+	args := []string{"-p", string(promptBytes)}
+	if cliModel != "" {
+		args = append([]string{"--model", cliModel}, args...)
+	}
+	cmd := exec.Command("claude", args...)
 	cmd.Dir = h.projectRoot
 	cmd.Stdout = f
 	cmd.Stderr = f
 
-	h.logger.Info("pipeline: starting agent", zap.String("agent", name))
+	h.logger.Info("pipeline: starting agent", zap.String("agent", name), zap.String("model", model))
 	if err := cmd.Run(); err != nil {
 		h.logger.Error("pipeline: agent run failed", zap.String("agent", name), zap.Error(err))
 		fmt.Fprintf(f, "=== %s Agent FAILED: %v ===\n", name, err)
@@ -216,6 +227,22 @@ func (h *Handler) runAgent(name, promptPath string, onDone func()) {
 		h.logger.Info("pipeline: agent completed", zap.String("agent", name))
 		fmt.Fprintf(f, "=== %s Agent complete ===\n", name)
 	}
+}
+
+var cliModelMap = map[string]string{
+	"claude-sonnet": "claude-sonnet-4-6",
+}
+
+// mapModelToCLI returns the Claude Code CLI model ID for known Claude models.
+// Non-Claude models (Ollama) return "" — the CLI uses its default.
+func mapModelToCLI(uiModel string) string {
+	if m, ok := cliModelMap[uiModel]; ok {
+		return m
+	}
+	if strings.HasPrefix(uiModel, "claude") {
+		return uiModel
+	}
+	return ""
 }
 
 func tailFile(path string, n int) []string {

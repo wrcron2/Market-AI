@@ -28,7 +28,7 @@ func NewHandler(database *db.DB, logger *zap.Logger, getAutoExec func() bool, ge
 	return &Handler{
 		db:          database,
 		logger:      logger,
-		client:      &http.Client{Timeout: 10 * time.Minute},
+		client:      &http.Client{Timeout: 20 * time.Minute},
 		getAutoExec: getAutoExec,
 		getMode:     getMode,
 	}
@@ -160,7 +160,8 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 		if sp == "" {
 			sp = roleSystemPrompts["Engineering"]
 		}
-		fullSystem := sp + "\nSystem state: " + snapJSON
+		miniSnap := h.buildMiniContext()
+		fullSystem := sp + "\n" + miniSnap
 		ollamaModel := "deepseek-r1:7b"
 		if req.Model == "qwen3" {
 			ollamaModel = "qwen3:4b"
@@ -176,6 +177,22 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(askResponse{Reply: reply, Model: req.Model})
+}
+
+func (h *Handler) buildMiniContext() string {
+	positions, _ := h.db.ListOpenPositions()
+	stats, _ := h.db.GetStats()
+	limits, _ := h.db.GetTodayLimits()
+
+	parts := []string{fmt.Sprintf("Positions: %d open", len(positions))}
+	if stats != nil {
+		parts = append(parts, fmt.Sprintf("Signals: %d total, %d approved, %d executed", stats.TotalSignals, stats.Approved, stats.Executed))
+	}
+	if limits != nil {
+		parts = append(parts, fmt.Sprintf("PnL today: $%.2f", limits.RealizedPnl))
+	}
+	parts = append(parts, fmt.Sprintf("Auto-execute: %v, Mode: %s", h.getAutoExec(), h.getMode()))
+	return strings.Join(parts, ". ") + "."
 }
 
 func (h *Handler) buildContextJSON() string {
