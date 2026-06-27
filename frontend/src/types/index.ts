@@ -36,6 +36,8 @@ export type WsMessageType =
   | 'debate_failed'
   | 'signals_expired'
   | 'alert'
+  | 'llm_fallback'
+  | 'mode_changed'
 
 export interface WsMessage {
   type: WsMessageType

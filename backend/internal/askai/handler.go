@@ -8,29 +8,113 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/marketflow/backend/internal/db"
+	"github.com/marketflow/backend/internal/ws"
 )
 
 type Handler struct {
 	db     *db.DB
 	logger *zap.Logger
 	client *http.Client
+	hub    *ws.Hub
 
 	getAutoExec func() bool
 	getMode     func() string
+
+	mu             sync.RWMutex
+	fallbackActive bool
+	fallbackSince  time.Time
+	failCount      int
+	lastFailTime   time.Time
 }
 
-func NewHandler(database *db.DB, logger *zap.Logger, getAutoExec func() bool, getMode func() string) *Handler {
-	return &Handler{
+const fallbackThreshold = 3
+const fallbackWindow = 60 * time.Second
+
+func NewHandler(database *db.DB, logger *zap.Logger, hub *ws.Hub, getAutoExec func() bool, getMode func() string) *Handler {
+	h := &Handler{
 		db:          database,
 		logger:      logger,
 		client:      &http.Client{Timeout: 20 * time.Minute},
+		hub:         hub,
 		getAutoExec: getAutoExec,
 		getMode:     getMode,
+	}
+	h.checkMissingKeys()
+	return h
+}
+
+func (h *Handler) checkMissingKeys() {
+	var missing []string
+	if os.Getenv("ANTHROPIC_API_KEY") == "" {
+		missing = append(missing, "ANTHROPIC_API_KEY")
+	}
+	if os.Getenv("GROQ_API_KEY") == "" {
+		missing = append(missing, "GROQ_API_KEY")
+	}
+	if len(missing) > 0 {
+		title := "Missing API keys: " + strings.Join(missing, ", ")
+		body := "Cloud LLM providers unavailable. Ask AI and signal pipeline will fall back to local Ollama (~7-10 min per call on CPU). Add the keys to .env and restart."
+		h.logger.Warn("askai.missing_keys", zap.Strings("keys", missing))
+		_ = h.db.InsertAlert("HIGH", title, body)
+		if h.hub != nil {
+			h.hub.Broadcast("alert", map[string]any{"severity": "HIGH", "title": title, "body": body})
+		}
+	}
+}
+
+func (h *Handler) IsFallbackActive() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.fallbackActive
+}
+
+func (h *Handler) recordCloudFailure(provider string, callErr error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	now := time.Now()
+	if now.Sub(h.lastFailTime) > fallbackWindow {
+		h.failCount = 0
+	}
+	h.failCount++
+	h.lastFailTime = now
+
+	if h.failCount >= fallbackThreshold && !h.fallbackActive {
+		h.fallbackActive = true
+		h.fallbackSince = now
+		title := fmt.Sprintf("LLM Fallback Active — %s unreachable", provider)
+		body := fmt.Sprintf("Cloud provider failed %d times in %s. Falling back to local Ollama (~7-10 min/call). Last error: %s",
+			h.failCount, fallbackWindow, callErr)
+		h.logger.Error("askai.fallback_activated", zap.String("provider", provider), zap.Error(callErr))
+		_ = h.db.InsertAlert("CRITICAL", title, body)
+		if h.hub != nil {
+			h.hub.Broadcast("alert", map[string]any{"severity": "CRITICAL", "title": title, "body": body})
+			h.hub.Broadcast("llm_fallback", map[string]any{"active": true, "provider": provider, "since": now.Format(time.RFC3339)})
+		}
+	}
+}
+
+func (h *Handler) recordCloudSuccess() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.failCount = 0
+	if h.fallbackActive {
+		h.fallbackActive = false
+		title := "LLM Cloud Provider Restored"
+		body := fmt.Sprintf("Cloud inference recovered after fallback since %s. Pipeline operating at full speed.", h.fallbackSince.Format(time.RFC3339))
+		h.logger.Info("askai.fallback_cleared")
+		_ = h.db.InsertAlert("INFO", title, body)
+		if h.hub != nil {
+			h.hub.Broadcast("alert", map[string]any{"severity": "INFO", "title": title, "body": body})
+			h.hub.Broadcast("llm_fallback", map[string]any{"active": false})
+		}
 	}
 }
 
@@ -95,9 +179,9 @@ func (h *Handler) ContextSnapshot(w http.ResponseWriter, r *http.Request) {
 }
 
 var roleSystemPrompts = map[string]string{
-	"Chief PM":        `You are the Chief PM of MarketFlow AI, an automated trading system. Answer concisely using the live system data below.`,
-	"Engineering":     `You are a senior engineer for MarketFlow AI (React + Go + Python LangGraph + Ollama + Alpaca). Give concrete technical answers.`,
-	"Risk Analyst":    `You are a quant risk analyst for MarketFlow AI. Analyze positions, sizing, drawdown. Use numbers from the live data below.`,
+	"Chief PM":         `You are the Chief PM of MarketFlow AI, an automated trading system. Answer concisely using the live system data below.`,
+	"Engineering":      `You are a senior engineer for MarketFlow AI (React + Go + Python LangGraph + Ollama + Alpaca). Give concrete technical answers.`,
+	"Risk Analyst":     `You are a quant risk analyst for MarketFlow AI. Analyze positions, sizing, drawdown. Use numbers from the live data below.`,
 	"Strategy Advisor": `You are a trading strategy advisor for MarketFlow AI (momentum breakout + mean reversion). Use the live data to advise.`,
 }
 
@@ -118,8 +202,9 @@ type askRequest struct {
 }
 
 type askResponse struct {
-	Reply string `json:"reply"`
-	Model string `json:"model"`
+	Reply    string `json:"reply"`
+	Model    string `json:"model"`
+	Fallback bool   `json:"fallback,omitempty"`
 }
 
 func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
@@ -143,61 +228,59 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	snapJSON := h.buildContextJSON()
+	sp := roleSystemPromptsFull[req.Role]
+	if sp == "" {
+		sp = roleSystemPromptsFull["Engineering"]
+	}
+	fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
 
 	var reply string
 	var err error
+	usedFallback := false
 
 	switch {
 	case strings.HasPrefix(req.Model, "claude"):
-		sp := roleSystemPromptsFull[req.Role]
-		if sp == "" {
-			sp = roleSystemPromptsFull["Engineering"]
-		}
-		fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
 		reply, err = h.callClaude(fullSystem, req.Question)
-	case req.Model == "deepseek-r1":
+		if err != nil {
+			h.recordCloudFailure("Anthropic", err)
+		} else {
+			h.recordCloudSuccess()
+		}
+
+	case req.Model == "deepseek-r1" || req.Model == "qwen3":
 		groqKey := os.Getenv("GROQ_API_KEY")
 		if groqKey != "" {
-			sp := roleSystemPromptsFull[req.Role]
-			if sp == "" {
-				sp = roleSystemPromptsFull["Engineering"]
-			}
-			fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
 			reply, err = h.callGroq(groqKey, "llama-3.3-70b-versatile", fullSystem, req.Question)
+			if err != nil {
+				h.recordCloudFailure("Groq", err)
+				h.logger.Warn("askai.groq_failed_fallback_ollama", zap.Error(err))
+				spShort := roleSystemPrompts[req.Role]
+				if spShort == "" {
+					spShort = roleSystemPrompts["Engineering"]
+				}
+				shortSystem := spShort + "\n" + h.buildMiniContext()
+				reply, err = h.callOllama("deepseek-r1:7b", shortSystem, req.Question)
+				usedFallback = true
+			} else {
+				h.recordCloudSuccess()
+			}
 		} else {
-			sp := roleSystemPrompts[req.Role]
-			if sp == "" {
-				sp = roleSystemPrompts["Engineering"]
+			spShort := roleSystemPrompts[req.Role]
+			if spShort == "" {
+				spShort = roleSystemPrompts["Engineering"]
 			}
-			fullSystem := sp + "\n" + h.buildMiniContext()
-			reply, err = h.callOllama("deepseek-r1:7b", fullSystem, req.Question)
+			shortSystem := spShort + "\n" + h.buildMiniContext()
+			reply, err = h.callOllama("deepseek-r1:7b", shortSystem, req.Question)
+			usedFallback = true
 		}
-	case req.Model == "qwen3":
-		groqKey := os.Getenv("GROQ_API_KEY")
-		if groqKey != "" {
-			sp := roleSystemPromptsFull[req.Role]
-			if sp == "" {
-				sp = roleSystemPromptsFull["Engineering"]
-			}
-			fullSystem := sp + "\n\n## Live System State\n```json\n" + snapJSON + "\n```"
-			reply, err = h.callGroq(groqKey, "qwen/qwen3-32b", fullSystem, req.Question)
-			reply = stripThinkTags(reply)
-		} else {
-			sp := roleSystemPrompts[req.Role]
-			if sp == "" {
-				sp = roleSystemPrompts["Engineering"]
-			}
-			fullSystem := sp + "\n" + h.buildMiniContext()
-			reply, err = h.callOllama("qwen3:4b", fullSystem, req.Question)
-		}
+
 	default:
-		sp := roleSystemPrompts[req.Role]
-		if sp == "" {
-			sp = roleSystemPrompts["Engineering"]
+		spShort := roleSystemPrompts[req.Role]
+		if spShort == "" {
+			spShort = roleSystemPrompts["Engineering"]
 		}
-		miniSnap := h.buildMiniContext()
-		fullSystem := sp + "\n" + miniSnap
-		reply, err = h.callOllama("qwen3:4b", fullSystem, req.Question)
+		shortSystem := spShort + "\n" + h.buildMiniContext()
+		reply, err = h.callOllama("qwen3:4b", shortSystem, req.Question)
 	}
 
 	if err != nil {
@@ -207,7 +290,7 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(askResponse{Reply: reply, Model: req.Model})
+	json.NewEncoder(w).Encode(askResponse{Reply: reply, Model: req.Model, Fallback: usedFallback})
 }
 
 func (h *Handler) buildMiniContext() string {
@@ -344,22 +427,6 @@ func (h *Handler) callOllama(model, system, question string) (string, error) {
 		return "", fmt.Errorf("failed to parse ollama response: %w", err)
 	}
 	return result.Message.Content, nil
-}
-
-func stripThinkTags(s string) string {
-	for {
-		start := strings.Index(s, "<think>")
-		if start == -1 {
-			break
-		}
-		end := strings.Index(s, "</think>")
-		if end == -1 {
-			s = s[:start]
-			break
-		}
-		s = s[:start] + s[end+len("</think>"):]
-	}
-	return strings.TrimSpace(s)
 }
 
 func (h *Handler) callGroq(apiKey, model, system, question string) (string, error) {

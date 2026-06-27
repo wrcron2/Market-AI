@@ -657,7 +657,7 @@ func main() {
 		}
 	})
 	// ─── Ask AI endpoints ────────────────────────────────────────────────────────
-	askHandler := askai.NewHandler(database, logger,
+	askHandler := askai.NewHandler(database, logger, hub,
 		func() bool {
 			autoExMu.RLock()
 			defer autoExMu.RUnlock()

@@ -1,4 +1,4 @@
-import { Menu, Octagon, Bell, Settings, PanelRightClose, Zap, Pause } from 'lucide-react'
+import { Menu, Octagon, Bell, Settings, PanelRightClose, Zap, Pause, AlertTriangle } from 'lucide-react'
 import { Pill, StatusDot } from '../ui/primitives'
 import { fmtUSD } from '../../lib/format'
 import type { TradingMode } from '../TradingModeToggle'
@@ -12,6 +12,7 @@ interface Props {
   marketOpen: boolean
   marketMinutes: number | null
   alertCount?: number
+  llmDegraded?: boolean
   onToggleNav: () => void
   onToggleAsk: () => void
   onHalt: () => void
@@ -29,6 +30,7 @@ export function TopBar({
   marketOpen,
   marketMinutes,
   alertCount = 0,
+  llmDegraded = false,
   onToggleNav,
   onToggleAsk,
   onHalt,
@@ -54,6 +56,12 @@ export function TopBar({
 
       {/* Center status pills */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1.5">
+        {llmDegraded && (
+          <Pill tone="red" className="animate-pulse">
+            <AlertTriangle size={13} />
+            DEGRADED — Ollama Fallback
+          </Pill>
+        )}
         <Pill tone={marketOpen ? 'green' : 'neutral'} className="hidden md:inline-flex">
           <StatusDot color={marketOpen ? '#22c55e' : '#6b7280'} />
           {marketOpen ? 'Market Open' : 'Market Closed'}

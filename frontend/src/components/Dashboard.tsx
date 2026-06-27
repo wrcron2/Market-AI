@@ -47,6 +47,7 @@ export function Dashboard() {
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([])
   const [wsConnected, setWsConnected] = useState(false)
   const [llmAlert, setLlmAlert] = useState<string | null>(null)
+  const [llmFallbackActive, setLlmFallbackActive] = useState(false)
   const [equity, setEquity] = useState<number | null>(null)
   const [stats, setStats] = useState<Stats>({
     totalSignals: 0,
@@ -130,6 +131,10 @@ export function Dashboard() {
       llm_unreachable: (payload) => {
         const { symbol, error } = payload as { symbol?: string; error?: string }
         setLlmAlert(`${symbol ? symbol + ': ' : ''}${error ?? 'Unknown LLM failure'}`)
+      },
+      llm_fallback: (payload) => {
+        const { active } = payload as { active: boolean }
+        setLlmFallbackActive(active)
       },
     },
   })
@@ -264,6 +269,7 @@ export function Dashboard() {
           marketOpen={marketOpen}
           marketMinutes={marketMinutes}
           alertCount={pendingOrders.length}
+          llmDegraded={llmFallbackActive}
           onToggleNav={() => setNavCollapsed((c) => !c)}
           onToggleAsk={() => setAskOpen((o) => !o)}
           onHalt={halt}
