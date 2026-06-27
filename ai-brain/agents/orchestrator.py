@@ -81,6 +81,17 @@ class Orchestrator:
         Reg NMS guard: snapshots with _source="delayed" are blocked from
         reaching the Green Light gate. Paper mode only.
         """
+        # Pipeline pause gate: skip processing when cloud LLM is down
+        if self._is_pipeline_paused():
+            log.warning(
+                "orchestrator.pipeline_paused",
+                symbol=market_snapshot.get("symbol"),
+                note="Cloud LLM fallback active — pipeline paused to avoid 38-min local inference",
+            )
+            return {"market_snapshot": market_snapshot, "signal": None,
+                    "debate_result": None, "risk_result": None,
+                    "submitted": False, "executed": False}
+
         # Reg NMS guard: only block delayed data in LIVE mode, not paper
         if market_snapshot.get("_source") == "delayed" and \
                 os.getenv("TRADING_MODE", "paper").lower() == "live":
@@ -303,6 +314,14 @@ class Orchestrator:
             return resp.json().get("enabled", False)
         except Exception:
             return False   # fail safe — never auto-execute if backend unreachable
+
+    def _is_pipeline_paused(self) -> bool:
+        """Check with the Go backend whether the pipeline should pause (cloud LLM fallback active)."""
+        try:
+            resp = httpx.get(f"{self._backend_base}/api/pipeline-pause", timeout=3)
+            return resp.json().get("paused", False)
+        except Exception:
+            return False
 
     def _sync_llm_provider(self) -> None:
         """Sync the LLM provider toggle from the Go backend before each pipeline run."""

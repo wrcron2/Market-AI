@@ -24,6 +24,7 @@ import (
 	"github.com/marketflow/backend/internal/greenlight"
 	grpcbridge "github.com/marketflow/backend/internal/grpc"
 	"github.com/marketflow/backend/internal/mode"
+	"github.com/marketflow/backend/internal/notify"
 	"github.com/marketflow/backend/internal/pipeline"
 	"github.com/marketflow/backend/internal/versions"
 	"github.com/marketflow/backend/internal/ws"
@@ -657,7 +658,11 @@ func main() {
 		}
 	})
 	// ─── Ask AI endpoints ────────────────────────────────────────────────────────
-	askHandler := askai.NewHandler(database, logger, hub,
+	emailNotifier := notify.New(logger)
+	if emailNotifier.Enabled() {
+		logger.Info("email_notifier_enabled", zap.String("to", os.Getenv("ALERT_EMAIL_TO")))
+	}
+	askHandler := askai.NewHandler(database, logger, hub, emailNotifier,
 		func() bool {
 			autoExMu.RLock()
 			defer autoExMu.RUnlock()
@@ -667,6 +672,7 @@ func main() {
 	)
 	mux.HandleFunc("/api/context-snapshot", askHandler.ContextSnapshot)
 	mux.HandleFunc("/api/ask", askHandler.Ask)
+	mux.HandleFunc("/api/pipeline-pause", askHandler.PipelinePause)
 
 	mux.HandleFunc("/ws", hub.ServeWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {

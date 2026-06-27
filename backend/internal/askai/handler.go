@@ -14,14 +14,16 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/marketflow/backend/internal/db"
+	"github.com/marketflow/backend/internal/notify"
 	"github.com/marketflow/backend/internal/ws"
 )
 
 type Handler struct {
-	db     *db.DB
-	logger *zap.Logger
-	client *http.Client
-	hub    *ws.Hub
+	db       *db.DB
+	logger   *zap.Logger
+	client   *http.Client
+	hub      *ws.Hub
+	notifier *notify.Notifier
 
 	getAutoExec func() bool
 	getMode     func() string
@@ -31,17 +33,20 @@ type Handler struct {
 	fallbackSince  time.Time
 	failCount      int
 	lastFailTime   time.Time
+	failedProvider string
+	probeStop      chan struct{}
 }
 
 const fallbackThreshold = 3
 const fallbackWindow = 60 * time.Second
 
-func NewHandler(database *db.DB, logger *zap.Logger, hub *ws.Hub, getAutoExec func() bool, getMode func() string) *Handler {
+func NewHandler(database *db.DB, logger *zap.Logger, hub *ws.Hub, notifier *notify.Notifier, getAutoExec func() bool, getMode func() string) *Handler {
 	h := &Handler{
 		db:          database,
 		logger:      logger,
 		client:      &http.Client{Timeout: 20 * time.Minute},
 		hub:         hub,
+		notifier:    notifier,
 		getAutoExec: getAutoExec,
 		getMode:     getMode,
 	}
@@ -64,6 +69,9 @@ func (h *Handler) checkMissingKeys() {
 		_ = h.db.InsertAlert("HIGH", title, body)
 		if h.hub != nil {
 			h.hub.Broadcast("alert", map[string]any{"severity": "HIGH", "title": title, "body": body})
+		}
+		if h.notifier != nil {
+			_ = h.notifier.Send("HIGH", title, body)
 		}
 	}
 }
@@ -88,8 +96,9 @@ func (h *Handler) recordCloudFailure(provider string, callErr error) {
 	if h.failCount >= fallbackThreshold && !h.fallbackActive {
 		h.fallbackActive = true
 		h.fallbackSince = now
+		h.failedProvider = provider
 		title := fmt.Sprintf("LLM Fallback Active — %s unreachable", provider)
-		body := fmt.Sprintf("Cloud provider failed %d times in %s. Falling back to local Ollama (~7-10 min/call). Last error: %s",
+		body := fmt.Sprintf("Cloud provider failed %d times in %s. Falling back to local Ollama (~7-10 min/call). Signal pipeline PAUSED. Last error: %s",
 			h.failCount, fallbackWindow, callErr)
 		h.logger.Error("askai.fallback_activated", zap.String("provider", provider), zap.Error(callErr))
 		_ = h.db.InsertAlert("CRITICAL", title, body)
@@ -97,6 +106,10 @@ func (h *Handler) recordCloudFailure(provider string, callErr error) {
 			h.hub.Broadcast("alert", map[string]any{"severity": "CRITICAL", "title": title, "body": body})
 			h.hub.Broadcast("llm_fallback", map[string]any{"active": true, "provider": provider, "since": now.Format(time.RFC3339)})
 		}
+		if h.notifier != nil {
+			_ = h.notifier.Send("CRITICAL", title, body)
+		}
+		h.startHealthProbe()
 	}
 }
 
@@ -107,13 +120,17 @@ func (h *Handler) recordCloudSuccess() {
 	h.failCount = 0
 	if h.fallbackActive {
 		h.fallbackActive = false
+		h.stopHealthProbe()
 		title := "LLM Cloud Provider Restored"
-		body := fmt.Sprintf("Cloud inference recovered after fallback since %s. Pipeline operating at full speed.", h.fallbackSince.Format(time.RFC3339))
+		body := fmt.Sprintf("Cloud inference recovered after fallback since %s. Signal pipeline resumed. Pipeline operating at full speed.", h.fallbackSince.Format(time.RFC3339))
 		h.logger.Info("askai.fallback_cleared")
 		_ = h.db.InsertAlert("INFO", title, body)
 		if h.hub != nil {
 			h.hub.Broadcast("alert", map[string]any{"severity": "INFO", "title": title, "body": body})
 			h.hub.Broadcast("llm_fallback", map[string]any{"active": false})
+		}
+		if h.notifier != nil {
+			_ = h.notifier.Send("INFO", title, body)
 		}
 	}
 }
@@ -469,6 +486,106 @@ func (h *Handler) callGroq(apiKey, model, system, question string) (string, erro
 		return "", fmt.Errorf("empty groq response")
 	}
 	return result.Choices[0].Message.Content, nil
+}
+
+// PipelinePause returns whether the signal pipeline should pause.
+func (h *Handler) PipelinePause(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	h.mu.RLock()
+	active := h.fallbackActive
+	since := h.fallbackSince
+	provider := h.failedProvider
+	h.mu.RUnlock()
+
+	resp := map[string]any{"paused": active}
+	if active {
+		resp["reason"] = fmt.Sprintf("Cloud provider %s unreachable since %s — local Ollama too slow for live signals", provider, since.Format(time.RFC3339))
+		resp["since"] = since.Format(time.RFC3339)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// startHealthProbe launches a background goroutine that probes the failed
+// cloud provider every 60s. When it responds, fallback auto-clears.
+// Must be called with h.mu held.
+func (h *Handler) startHealthProbe() {
+	if h.probeStop != nil {
+		return
+	}
+	h.probeStop = make(chan struct{})
+	provider := h.failedProvider
+	h.logger.Info("askai.health_probe_started", zap.String("provider", provider))
+
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		probeClient := &http.Client{Timeout: 15 * time.Second}
+
+		for {
+			select {
+			case <-h.probeStop:
+				return
+			case <-ticker.C:
+				if h.probeProvider(probeClient, provider) {
+					h.logger.Info("askai.health_probe_recovered", zap.String("provider", provider))
+					h.recordCloudSuccess()
+					return
+				}
+				h.logger.Debug("askai.health_probe_still_down", zap.String("provider", provider))
+			}
+		}
+	}()
+}
+
+// stopHealthProbe signals the probe goroutine to exit. Must be called with h.mu held.
+func (h *Handler) stopHealthProbe() {
+	if h.probeStop != nil {
+		close(h.probeStop)
+		h.probeStop = nil
+	}
+}
+
+// probeProvider makes a lightweight test call to the given cloud provider.
+func (h *Handler) probeProvider(client *http.Client, provider string) bool {
+	switch provider {
+	case "Groq":
+		key := os.Getenv("GROQ_API_KEY")
+		if key == "" {
+			return false
+		}
+		body := `{"model":"llama-3.3-70b-versatile","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
+		req, _ := http.NewRequest("POST", "https://api.groq.com/openai/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+key)
+		resp, err := client.Do(req)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == 200
+
+	case "Anthropic":
+		key := os.Getenv("ANTHROPIC_API_KEY")
+		if key == "" {
+			return false
+		}
+		body := `{"model":"claude-sonnet-4-6","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
+		req, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", key)
+		req.Header.Set("anthropic-version", "2023-06-01")
+		resp, err := client.Do(req)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == 200
+	}
+	return false
 }
 
 func easternTime() *time.Location {
