@@ -778,6 +778,14 @@ func main() {
 				hub.Broadcast("auto_execute_changed", map[string]any{"enabled": shouldEnable})
 				if shouldEnable {
 					logger.Info("market-watcher: market open — auto-execute ON")
+					// Expire pre-market watchlist signals — they'll be re-generated with fresh data
+					go func() {
+						expired, err := database.ExpirePendingSignals("market-watcher", "Market open — pre-market watchlist cleared, fresh signals incoming")
+						if err == nil && expired > 0 {
+							logger.Info("market-watcher: cleared pre-market watchlist signals", zap.Int("count", expired))
+							hub.Broadcast("signals_expired", map[string]any{"count": expired, "reason": "market_open_revalidation"})
+						}
+					}()
 				} else {
 					logger.Info("market-watcher: market closed — auto-execute OFF")
 					// Auto-expire all PENDING signals at market close — never carry stale signals to next day

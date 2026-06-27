@@ -317,6 +317,29 @@ def main() -> None:
         snapshots = [s for s in snapshots if _is_interesting(s)]
         log.info("brain.prefilter", before=before, after=len(snapshots), dropped=before - len(snapshots))
 
+        # ── Relative Strength Rotation — trade only the strongest ETF ──────────
+        # dual_momentum design: among candidates meeting entry criteria, trade only
+        # the one with the highest 12-month momentum (close / sma_50 ratio as proxy).
+        # This prevents simultaneous positions in correlated ETFs.
+        if len(snapshots) > 1:
+            def _momentum_score(s: dict) -> float:
+                close  = s.get("ohlcv", {}).get("close", 0)
+                sma50  = s.get("indicators", {}).get("sma_50", close)
+                high52 = s.get("indicators", {}).get("high_52w", close)
+                if close <= 0:
+                    return 0.0
+                # Score = proximity to 52wk high × trend strength
+                return (close / high52) * (close / sma50) if sma50 > 0 and high52 > 0 else 0.0
+
+            best = max(snapshots, key=_momentum_score)
+            if len(snapshots) > 1:
+                dropped_symbols = [s["symbol"] for s in snapshots if s["symbol"] != best["symbol"]]
+                log.info("brain.relative_strength_rotation",
+                         selected=best["symbol"],
+                         dropped=dropped_symbols,
+                         note="trading strongest ETF only")
+                snapshots = [best]
+
         # ── Deduplication: skip symbols with a pending signal or open position ──
         pending_symbols = position_store.get_pending_symbols()
         open_symbols    = position_store.get_open_symbols()
