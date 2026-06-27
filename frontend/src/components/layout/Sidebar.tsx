@@ -29,11 +29,12 @@ interface Props {
   active: Tab
   pendingCount: number
   mode: TradingMode
+  marketOpen: boolean
   onNavigate: (tab: Tab) => void
   onToggle: () => void
 }
 
-export function Sidebar({ collapsed, active, pendingCount, mode, onNavigate, onToggle }: Props) {
+export function Sidebar({ collapsed, active, pendingCount, mode, marketOpen, onNavigate, onToggle }: Props) {
   const groups: NavGroup[] = [
     { label: 'Trading', items: [{ tab: 'signals', label: 'Live Signals', icon: Activity, badge: pendingCount }] },
     { label: 'Performance', items: [{ tab: 'portfolio', label: 'Alpaca Portfolio', icon: TrendingUp }] },
@@ -117,8 +118,10 @@ export function Sidebar({ collapsed, active, pendingCount, mode, onNavigate, onT
       {/* Footer status */}
       <div className="flex shrink-0 flex-col gap-1.5 border-t border-line-faint p-2.5">
         <div className="flex items-center gap-2 rounded-lg bg-surface-sunken px-2 py-1.5">
-          <StatusDot color="#22c55e" />
-          {!collapsed && <span className="text-xs text-ink-muted">Market Open</span>}
+          <StatusDot color={marketOpen ? '#22c55e' : '#6b7280'} />
+          {!collapsed && (
+            <span className="text-xs text-ink-muted">{marketOpen ? 'Market Open' : 'Market Closed'}</span>
+          )}
         </div>
         <div className="flex items-center gap-2 rounded-lg bg-surface-sunken px-2 py-1.5">
           <span

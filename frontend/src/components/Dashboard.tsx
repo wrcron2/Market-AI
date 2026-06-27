@@ -11,6 +11,7 @@ import { AuditLog } from './AuditLog'
 import { AlertsPanel } from './AlertsPanel'
 import { PipelinePanel } from './PipelinePanel'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { useMarketStatus } from '../hooks/useMarketStatus'
 import type { StagedOrder, ListPendingResponse } from '../types'
 import { AppShell } from './layout/AppShell'
 import { Sidebar } from './layout/Sidebar'
@@ -38,6 +39,7 @@ export function Dashboard() {
   const { mode, changeMode } = useTradingMode()
   const { enabled: autoExec, toggle } = useAutoExecute()
   const { provider: llmProvider, changeProvider } = useLLMProvider()
+  const { isOpen: marketOpen, minutesUntilClose: marketMinutes } = useMarketStatus()
   const [activeTab, setActiveTab] = useState<Tab>('signals')
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [askOpen, setAskOpen] = useState(true)
@@ -247,6 +249,7 @@ export function Dashboard() {
           active={activeTab}
           pendingCount={pendingOrders.length}
           mode={mode}
+          marketOpen={marketOpen}
           onNavigate={setActiveTab}
           onToggle={() => setNavCollapsed((c) => !c)}
         />
@@ -258,6 +261,8 @@ export function Dashboard() {
           autoExec={autoExec}
           mode={mode}
           portfolioValue={equity}
+          marketOpen={marketOpen}
+          marketMinutes={marketMinutes}
           alertCount={pendingOrders.length}
           onToggleNav={() => setNavCollapsed((c) => !c)}
           onToggleAsk={() => setAskOpen((o) => !o)}

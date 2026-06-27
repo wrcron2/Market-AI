@@ -9,6 +9,8 @@ interface Props {
   autoExec: boolean
   mode: TradingMode
   portfolioValue: number | null
+  marketOpen: boolean
+  marketMinutes: number | null
   alertCount?: number
   onToggleNav: () => void
   onToggleAsk: () => void
@@ -24,6 +26,8 @@ export function TopBar({
   autoExec,
   mode,
   portfolioValue,
+  marketOpen,
+  marketMinutes,
   alertCount = 0,
   onToggleNav,
   onToggleAsk,
@@ -50,10 +54,14 @@ export function TopBar({
 
       {/* Center status pills */}
       <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1.5">
-        <Pill tone="green" className="hidden md:inline-flex">
-          <StatusDot color="#22c55e" />
-          Market Open
-          <span className="hidden font-mono text-[11px] text-ink-faint lg:inline">· closes 45m</span>
+        <Pill tone={marketOpen ? 'green' : 'neutral'} className="hidden md:inline-flex">
+          <StatusDot color={marketOpen ? '#22c55e' : '#6b7280'} />
+          {marketOpen ? 'Market Open' : 'Market Closed'}
+          {marketOpen && marketMinutes != null && (
+            <span className="hidden font-mono text-[11px] text-ink-faint lg:inline">
+              · closes {marketMinutes}m
+            </span>
+          )}
         </Pill>
 
         <Pill tone={wsConnected ? 'green' : 'orange'} className="hidden md:inline-flex">
