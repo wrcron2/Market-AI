@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/marketflow/backend/internal/alpaca"
+	"github.com/marketflow/backend/internal/askai"
 	"github.com/marketflow/backend/internal/db"
 	"github.com/marketflow/backend/internal/greenlight"
 	grpcbridge "github.com/marketflow/backend/internal/grpc"
@@ -655,6 +656,18 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+	// ─── Ask AI endpoints ────────────────────────────────────────────────────────
+	askHandler := askai.NewHandler(database, logger,
+		func() bool {
+			autoExMu.RLock()
+			defer autoExMu.RUnlock()
+			return autoExEnabled
+		},
+		func() string { return string(modeManager.Get()) },
+	)
+	mux.HandleFunc("/api/context-snapshot", askHandler.ContextSnapshot)
+	mux.HandleFunc("/api/ask", askHandler.Ask)
+
 	mux.HandleFunc("/ws", hub.ServeWS)
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

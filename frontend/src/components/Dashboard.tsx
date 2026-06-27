@@ -267,7 +267,22 @@ export function Dashboard() {
           onSettings={() => setActiveTab('config')}
         />
       }
-      rightPanel={<AskAiPanel open={askOpen} onClose={() => setAskOpen(false)} />}
+      rightPanel={
+        <AskAiPanel
+          open={askOpen}
+          onClose={() => setAskOpen(false)}
+          onAsk={async ({ role, question, model }) => {
+            const res = await fetch(`${API_BASE}/ask`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ role, question, model }),
+            })
+            if (!res.ok) throw new Error(await res.text())
+            const data = await res.json()
+            return data.reply
+          }}
+        />
+      }
     >
       {activeTab === 'signals' && (
         <div className="flex flex-col gap-4">
