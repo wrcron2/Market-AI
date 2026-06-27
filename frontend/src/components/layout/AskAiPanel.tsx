@@ -3,6 +3,13 @@ import { Sparkles, ChevronRight, ArrowUp } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
 type Role = 'Chief PM' | 'Engineering' | 'Risk Analyst' | 'Strategy Advisor'
+type AiModel = 'claude-sonnet' | 'deepseek-r1' | 'qwen3'
+
+const MODEL_LABELS: Record<AiModel, { label: string; desc: string }> = {
+  'claude-sonnet': { label: 'Claude Sonnet', desc: 'Cloud · fast · best for strategy & PM' },
+  'deepseek-r1': { label: 'DeepSeek R1', desc: 'Local Ollama · reasoning · judge model' },
+  'qwen3': { label: 'Qwen3 4B', desc: 'Local Ollama · lightweight · quick answers' },
+}
 
 interface Message {
   role: 'user' | 'assistant'
@@ -25,13 +32,14 @@ interface Props {
    * (GET /api/context-snapshot). Return the assistant's markdown reply.
    * If omitted, a canned reply is shown so the panel works standalone.
    */
-  onAsk?: (args: { role: Role; question: string }) => Promise<string>
+  onAsk?: (args: { role: Role; question: string; model: AiModel }) => Promise<string>
   /** Floating overlay style on mobile. */
   floating?: boolean
 }
 
 export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
   const [role, setRole] = useState<Role>('Chief PM')
+  const [model, setModel] = useState<AiModel>('claude-sonnet')
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
   const [history, setHistory] = useState<Record<Role, Message[]>>({
@@ -57,8 +65,8 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
     setTyping(true)
     try {
       const reply = onAsk
-        ? await onAsk({ role, question })
-        : 'Connect `onAsk` to your Claude route to get a live answer. It should inject the `/api/context-snapshot` (portfolio, open positions, pending signals, AUTO state, pipeline health) into the system prompt for this role.'
+        ? await onAsk({ role, question, model })
+        : `Connect \`onAsk\` to your backend route. Model: **${MODEL_LABELS[model].label}**. It should inject \`/api/context-snapshot\` into the system prompt for ${role}.`
       setHistory((h) => ({ ...h, [role]: [...h[role], { role: 'assistant', text: reply }] }))
     } catch {
       setHistory((h) => ({
@@ -92,7 +100,7 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
         </button>
       </div>
 
-      {/* Role */}
+      {/* Role & Model */}
       <div className="border-b border-line-faint px-3.5 py-3">
         <div className="mb-1.5 text-[11px] tracking-wide text-ink-faint">ROLE</div>
         <select
@@ -105,6 +113,18 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
           ))}
         </select>
         <div className="mt-1.5 text-[11px] leading-snug text-slate-600">{ROLE_DESC[role]}</div>
+
+        <div className="mb-1.5 mt-3 text-[11px] tracking-wide text-ink-faint">MODEL</div>
+        <select
+          value={model}
+          onChange={(e) => setModel(e.target.value as AiModel)}
+          className="w-full cursor-pointer rounded-lg border border-line-soft bg-surface-raised px-2.5 py-2 text-[13px] text-ink outline-none focus:border-signal-blue"
+        >
+          {(Object.keys(MODEL_LABELS) as AiModel[]).map((m) => (
+            <option key={m} value={m}>{MODEL_LABELS[m].label}</option>
+          ))}
+        </select>
+        <div className="mt-1.5 text-[11px] leading-snug text-slate-600">{MODEL_LABELS[model].desc}</div>
       </div>
 
       {/* Quick actions */}
@@ -159,7 +179,7 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
       {/* Composer */}
       <div className="border-t border-line-faint px-3.5 py-3">
         <div className="mb-1.5 flex justify-between text-[10px] text-slate-600">
-          <span>Context: live snapshot injected · Claude (cloud)</span>
+          <span>Context: live snapshot · {MODEL_LABELS[model].label}</span>
           <span>10/min</span>
         </div>
         <div className="flex items-end gap-2 rounded-xl border border-line-soft bg-surface-raised p-2 focus-within:border-signal-blue">

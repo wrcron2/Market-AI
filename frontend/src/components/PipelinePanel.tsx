@@ -28,6 +28,14 @@ interface PipelineStatus {
   research: AgentStatus
 }
 
+type AgentModel = 'claude-sonnet' | 'deepseek-r1' | 'qwen3'
+
+const AGENT_MODELS: { value: AgentModel; label: string }[] = [
+  { value: 'claude-sonnet', label: 'Claude Sonnet' },
+  { value: 'deepseek-r1', label: 'DeepSeek R1' },
+  { value: 'qwen3', label: 'Qwen3 4B' },
+]
+
 type RepoFilter = 'all' | 'new' | 'good' | 'rejected' | 'researched'
 
 const STATUS_BADGE: Record<string, { bg: string; color: string; border: string }> = {
@@ -66,6 +74,8 @@ export function PipelinePanel() {
   const [error, setError] = useState<string | null>(null)
   const [scoutLoading, setScoutLoading] = useState(false)
   const [researchLoading, setResearchLoading] = useState(false)
+  const [scoutModel, setScoutModel] = useState<AgentModel>('claude-sonnet')
+  const [researchModel, setResearchModel] = useState<AgentModel>('claude-sonnet')
   const logRef = useRef<HTMLPreElement>(null)
 
   const loadRepos = useCallback(async () => {
@@ -111,7 +121,11 @@ export function PipelinePanel() {
   const runScout = async () => {
     setScoutLoading(true)
     try {
-      const res = await fetch('/api/pipeline/run/scout', { method: 'POST' })
+      const res = await fetch('/api/pipeline/run/scout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: scoutModel }),
+      })
       const data = await res.json()
       if (!data.started && data.message) {
         // Already running — message shown via button state
@@ -125,7 +139,11 @@ export function PipelinePanel() {
   const runResearch = async () => {
     setResearchLoading(true)
     try {
-      const res = await fetch('/api/pipeline/run/research', { method: 'POST' })
+      const res = await fetch('/api/pipeline/run/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: researchModel }),
+      })
       const data = await res.json()
       if (!data.started && data.message) {
         // Already running — message shown via button state
@@ -429,6 +447,8 @@ export function PipelinePanel() {
           btnTextColor="#fff"
           lastRun={scout?.last_run}
           extra={`Schedule: ${scout?.schedule ?? 'cron 6h'}`}
+          model={scoutModel}
+          onModelChange={setScoutModel}
         />
 
         {/* Research */}
@@ -443,6 +463,8 @@ export function PipelinePanel() {
           btnTextColor="#000"
           lastRun={research?.last_run}
           extra="Triggers on: status='good' AND not yet researched"
+          model={researchModel}
+          onModelChange={setResearchModel}
         />
       </div>
 
@@ -540,11 +562,13 @@ interface RunControlProps {
   btnTextColor: string
   lastRun?: string | null
   extra?: string
+  model: AgentModel
+  onModelChange: (m: AgentModel) => void
 }
 
 function RunControl({
   icon, title, description, running, loading, onRun,
-  btnColor, btnTextColor, lastRun, extra,
+  btnColor, btnTextColor, lastRun, extra, model, onModelChange,
 }: RunControlProps) {
   const busy = loading || running
   return (
@@ -556,9 +580,26 @@ function RunControl({
         <span style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>{title}</span>
         <RunningDot running={running} color={btnColor} />
       </div>
-      <p style={{ color: '#475569', fontSize: 12, margin: '0 0 16px', lineHeight: 1.6 }}>
+      <p style={{ color: '#475569', fontSize: 12, margin: '0 0 12px', lineHeight: 1.6 }}>
         {description}
       </p>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Model</div>
+        <select
+          value={model}
+          onChange={(e) => onModelChange(e.target.value as AgentModel)}
+          disabled={busy}
+          style={{
+            background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155',
+            borderRadius: 8, padding: '6px 10px', fontSize: 12, width: '100%',
+            cursor: busy ? 'not-allowed' : 'pointer', outline: 'none',
+          }}
+        >
+          {AGENT_MODELS.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
+      </div>
       <button
         onClick={onRun}
         disabled={busy}
