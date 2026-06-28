@@ -7,8 +7,8 @@ type AiModel = 'claude-sonnet' | 'deepseek-r1' | 'qwen3'
 
 const MODEL_LABELS: Record<AiModel, { label: string; desc: string }> = {
   'claude-sonnet': { label: 'Claude Sonnet', desc: 'Cloud · fast · best for strategy & PM' },
-  'deepseek-r1': { label: 'Llama 3.3 70B', desc: 'Groq cloud · fast · reasoning' },
-  'qwen3': { label: 'Llama 3.3 70B (Alt)', desc: 'Groq cloud · fast · general' },
+  'deepseek-r1': { label: 'DeepSeek R1', desc: 'Groq cloud · Llama 3.3 70B' },
+  'qwen3': { label: 'Qwen3', desc: 'Groq cloud · Llama 3.3 70B' },
 }
 
 interface Message {

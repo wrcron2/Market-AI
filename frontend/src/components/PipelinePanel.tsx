@@ -32,8 +32,8 @@ type AgentModel = 'claude-sonnet' | 'deepseek-r1' | 'qwen3'
 
 const AGENT_MODELS: { value: AgentModel; label: string }[] = [
   { value: 'claude-sonnet', label: 'Claude Sonnet' },
-  { value: 'deepseek-r1', label: 'DeepSeek R1' },
-  { value: 'qwen3', label: 'Qwen3 4B' },
+  { value: 'deepseek-r1', label: 'DeepSeek R1 (Groq)' },
+  { value: 'qwen3', label: 'Qwen3 (Groq)' },
 ]
 
 type RepoFilter = 'all' | 'new' | 'good' | 'rejected' | 'researched'
