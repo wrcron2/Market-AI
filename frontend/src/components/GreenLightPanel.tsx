@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, type ReactNode } from 'react'
 import {
   CheckCircle, XCircle, TrendingUp, TrendingDown, Brain, AlertTriangle,
   Search, Filter, ChevronLeft, ChevronRight, Calendar,
+  Target, Shield, Scale,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import type { StagedOrder, Direction } from '../types'
@@ -273,11 +274,13 @@ function OrderCard({ order, comment, onCommentChange, onApprove, onReject, isPro
 
       {/* AI Reasoning */}
       <details className="group mt-3 border-t border-line-soft pt-3">
-        <summary className="cursor-pointer list-none text-[12.5px] text-ink-muted hover:text-ink">
-          AI Reasoning
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12.5px] font-semibold text-ink-muted hover:text-ink">
+          <Brain size={13} className="text-ink-faint" />
+          Agent Reasoning Chain
+          <span className="ml-auto text-[10px] font-normal text-ink-faint group-open:hidden">click to expand</span>
         </summary>
-        <div className="prose-mf mt-2 text-[12px] leading-relaxed text-slate-400">
-          <ReactMarkdown>{order.reasoning}</ReactMarkdown>
+        <div className="mt-3 flex flex-col gap-2">
+          <ReasoningSection reasoning={order.reasoning} />
         </div>
       </details>
 
@@ -310,5 +313,118 @@ function OrderCard({ order, comment, onCommentChange, onApprove, onReject, isPro
         </button>
       </div>
     </div>
+  )
+}
+
+// ─── Reasoning Sections ───────────────────────────────────────────────────────
+
+interface ReasoningBlock {
+  tag: string
+  content: string
+}
+
+const REASONING_META: Record<string, {
+  icon: ReactNode
+  label: string
+  borderColor: string
+  headerColor: string
+  bgColor: string
+}> = {
+  Signal: {
+    icon: <Target size={12} />,
+    label: 'Signal Generator',
+    borderColor: '#3b82f6',
+    headerColor: '#93c5fd',
+    bgColor: '#3b82f608',
+  },
+  Bull: {
+    icon: <TrendingUp size={12} />,
+    label: 'Bull Case',
+    borderColor: '#22c55e',
+    headerColor: '#86efac',
+    bgColor: '#22c55e08',
+  },
+  Bear: {
+    icon: <TrendingDown size={12} />,
+    label: 'Bear Case',
+    borderColor: '#ef4444',
+    headerColor: '#fca5a5',
+    bgColor: '#ef444408',
+  },
+  Judge: {
+    icon: <Scale size={12} />,
+    label: 'Judge',
+    borderColor: '#a855f7',
+    headerColor: '#d8b4fe',
+    bgColor: '#a855f708',
+  },
+  Risk: {
+    icon: <Shield size={12} />,
+    label: 'Risk Manager',
+    borderColor: '#f59e0b',
+    headerColor: '#fcd34d',
+    bgColor: '#f59e0b08',
+  },
+}
+
+function parseReasoning(text: string): ReasoningBlock[] {
+  const tags = ['Signal', 'Bull', 'Bear', 'Judge', 'Risk']
+  const result: ReasoningBlock[] = []
+
+  for (let i = 0; i < tags.length; i++) {
+    const tag = tags[i]
+    const marker = `[${tag}]`
+    const startIdx = text.indexOf(marker)
+    if (startIdx === -1) continue
+
+    const contentStart = startIdx + marker.length
+    let endIdx = text.length
+    for (let j = i + 1; j < tags.length; j++) {
+      const nextIdx = text.indexOf(`[${tags[j]}]`, contentStart)
+      if (nextIdx !== -1 && nextIdx < endIdx) endIdx = nextIdx
+    }
+    result.push({ tag, content: text.slice(contentStart, endIdx).trim() })
+  }
+
+  if (result.length === 0) {
+    return [{ tag: 'Analysis', content: text.trim() }]
+  }
+  return result
+}
+
+function ReasoningSection({ reasoning }: { reasoning: string }) {
+  const blocks = parseReasoning(reasoning)
+
+  return (
+    <>
+      {blocks.map(({ tag, content }) => {
+        const meta = REASONING_META[tag]
+        if (!meta) {
+          return (
+            <div key={tag} className="rounded-lg border border-line-soft p-3 text-[12px] text-ink-muted">
+              <div className="prose-mf leading-relaxed"><ReactMarkdown>{content}</ReactMarkdown></div>
+            </div>
+          )
+        }
+        return (
+          <div
+            key={tag}
+            style={{
+              borderLeft: `3px solid ${meta.borderColor}`,
+              background: meta.bgColor,
+            }}
+            className="rounded-r-lg py-2 pl-3 pr-3"
+          >
+            <div className="mb-1.5 flex items-center gap-1.5" style={{ color: meta.headerColor }}>
+              {meta.icon}
+              <span className="text-[11px] font-bold uppercase tracking-wider">{meta.label}</span>
+            </div>
+            <div className="text-[12px] leading-relaxed text-slate-300">
+              <ReactMarkdown>{content}</ReactMarkdown>
+            </div>
+          </div>
+        )
+      })}
+    </>
   )
 }
