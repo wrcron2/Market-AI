@@ -209,12 +209,33 @@ func (h *Handler) runAgent(name, promptPath, model string, onDone func()) {
 		return
 	}
 
+	claudePath, lookErr := exec.LookPath("claude")
+	if lookErr != nil {
+		// LookPath only searches PATH; fall back to common install locations when the
+		// server is launched outside a full user shell (e.g. launchd, systemd).
+		for _, candidate := range []string{
+			filepath.Join(os.Getenv("HOME"), ".local", "bin", "claude"),
+			"/usr/local/bin/claude",
+			"/opt/homebrew/bin/claude",
+		} {
+			if _, statErr := os.Stat(candidate); statErr == nil {
+				claudePath = candidate
+				break
+			}
+		}
+	}
+	if claudePath == "" {
+		h.logger.Error("pipeline: claude CLI not found", zap.String("agent", name))
+		fmt.Fprintf(f, "=== %s Agent FAILED: claude CLI not found in PATH or common locations ===\n", name)
+		return
+	}
+
 	cliModel := mapModelToCLI(model)
 	args := []string{"-p", string(promptBytes)}
 	if cliModel != "" {
 		args = append([]string{"--model", cliModel}, args...)
 	}
-	cmd := exec.Command("claude", args...)
+	cmd := exec.Command(claudePath, args...)
 	cmd.Dir = h.projectRoot
 	cmd.Stdout = f
 	cmd.Stderr = f
