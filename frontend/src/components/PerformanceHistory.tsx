@@ -27,23 +27,30 @@ export function PerformanceHistory() {
   if (periods.length === 0) return null
 
   return (
-    <div className="perf-history">
-      <h3 className="alpaca-section-title">Portfolio Performance</h3>
-      <div className="perf-history-row">
+    <div>
+      <h3 className="mb-3 flex items-center gap-2.5 text-base font-semibold">Portfolio Performance</h3>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {periods.map((p) => {
           const positive = p.pnl >= 0
           const Icon = positive ? TrendingUp : TrendingDown
           return (
-            <div key={p.period} className={`perf-card ${positive ? 'perf-card-up' : 'perf-card-down'}`}>
-              <div className="perf-card-label">{p.label}</div>
-              <div className="perf-card-pnl">
+            <div
+              key={p.period}
+              className={`rounded-xl border p-4 ${
+                positive
+                  ? 'border-emerald-500/20 bg-emerald-500/5'
+                  : 'border-red-500/20 bg-red-500/5'
+              }`}
+            >
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{p.label}</div>
+              <div className={`mt-1.5 flex items-center gap-1.5 font-mono text-[17px] font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
                 <Icon size={14} />
                 {positive ? '+' : ''}${fmt$(p.pnl)}
               </div>
-              <div className={`perf-card-pct ${positive ? 'pnl-positive' : 'pnl-negative'}`}>
+              <div className={`mt-0.5 font-mono text-[13px] font-semibold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
                 {positive ? '+' : ''}{p.pnl_pct.toFixed(2)}%
               </div>
-              <div className="perf-card-range">
+              <div className="mt-1.5 text-[11px] text-ink-faint">
                 ${fmt$(p.start_value)} → ${fmt$(p.end_value)}
               </div>
             </div>

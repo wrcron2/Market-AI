@@ -3,7 +3,7 @@ import type { Position, AlpacaPosition } from '../types'
 
 interface Props {
   positions: Position[]
-  alpacaPositions: AlpacaPosition[]  // for live unrealized P&L on open trades
+  alpacaPositions: AlpacaPosition[]
 }
 
 function fmtTime(ms: number) {
@@ -13,6 +13,8 @@ function fmtTime(ms: number) {
 function fmtUSD(n: number) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
+
+const pnlCls = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-red-400')
 
 export function TodaysTrades({ positions, alpacaPositions }: Props) {
   const todayStart = new Date()
@@ -33,19 +35,19 @@ export function TodaysTrades({ positions, alpacaPositions }: Props) {
   }, 0)
 
   return (
-    <div className="todays-trades">
-      <div className="todays-trades-header">
-        <h3 className="alpaca-section-title" style={{ margin: 0 }}>
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="flex items-center gap-2.5 text-base font-semibold">
           <Activity size={14} />
           Today's Trades
-          <span className="badge">{todayTrades.length}</span>
+          <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-semibold text-ink-muted">{todayTrades.length}</span>
         </h3>
-        <div className={`todays-trades-total ${totalPnl >= 0 ? 'pnl-positive' : 'pnl-negative'}`}>
+        <div className={`font-mono text-[13px] font-semibold ${pnlCls(totalPnl)}`}>
           {totalPnl >= 0 ? '+' : ''}${fmtUSD(totalPnl)} today
         </div>
       </div>
 
-      <div className="todays-trades-list">
+      <div className="flex flex-col gap-2">
         {todayTrades.map(p => {
           const isLong = p.direction === 'LONG'
           const ap = alpacaMap[p.symbol]
@@ -66,63 +68,71 @@ export function TodaysTrades({ positions, alpacaPositions }: Props) {
           const Icon = isLong ? TrendingUp : TrendingDown
 
           return (
-            <div key={p.id} className={`trade-card ${isClosed ? 'trade-closed' : 'trade-open'}`}>
-
+            <div
+              key={p.id}
+              className={`flex items-center justify-between gap-4 rounded-xl border p-3.5 ${
+                isClosed ? 'border-line bg-surface' : 'border-line-soft bg-surface-raised'
+              }`}
+            >
               {/* Left: symbol + badges */}
-              <div className="trade-card-left">
-                <div className="trade-symbol-row">
-                  <Icon size={14} className={isLong ? 'text-green' : 'text-red'} />
-                  <span className="trade-symbol">{p.symbol}</span>
-                  <span className={`direction-badge ${isLong ? 'buy' : 'sell'}`}>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Icon size={14} className={isLong ? 'text-emerald-400' : 'text-red-400'} />
+                  <span className="font-mono text-sm font-bold">{p.symbol}</span>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                    isLong ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'
+                  }`}>
                     {isLong ? 'LONG' : 'SHORT'}
                   </span>
-                  <span className={`trade-status-pill ${isClosed ? 'pill-closed' : 'pill-open'}`}>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                    isClosed ? 'bg-surface-sunken text-ink-faint' : 'bg-blue-500/15 text-blue-400'
+                  }`}>
                     {isClosed ? 'closed' : 'open'}
                   </span>
                 </div>
-                <div className="trade-meta">
+                <div className="mt-1 flex items-center gap-1.5 text-[11px] text-ink-faint">
                   <Clock size={11} />
                   {fmtTime(p.entry_time)}
                   {isClosed && p.exit_time && <> → {fmtTime(p.exit_time)}</>}
-                  <span className="trade-qty">{p.quantity.toLocaleString()} shares</span>
+                  <span className="ml-1 text-ink-muted">{p.quantity.toLocaleString()} shares</span>
                   {p.close_reason && (
-                    <span className="close-reason-tag">{p.close_reason}</span>
+                    <span className="rounded bg-surface-sunken px-1.5 py-0.5 text-[10px] font-semibold text-ink-muted">{p.close_reason}</span>
                   )}
                 </div>
               </div>
 
               {/* Middle: price journey */}
-              <div className="trade-card-prices">
-                <div className="trade-price-row">
-                  <span className="trade-price-label">entry</span>
-                  <span className="trade-price-val">${p.entry_price > 0 ? p.entry_price.toFixed(2) : '—'}</span>
+              <div className="flex items-center gap-2 text-[12px]">
+                <div className="text-center">
+                  <div className="text-[10px] text-ink-faint">entry</div>
+                  <div className="font-mono font-semibold">${p.entry_price > 0 ? p.entry_price.toFixed(2) : '—'}</div>
                 </div>
-                <span className="trade-price-arrow">→</span>
-                <div className="trade-price-row">
-                  <span className="trade-price-label">{isClosed ? 'exit' : 'now'}</span>
-                  <span className="trade-price-val">
+                <span className="text-ink-faint">→</span>
+                <div className="text-center">
+                  <div className="text-[10px] text-ink-faint">{isClosed ? 'exit' : 'now'}</div>
+                  <div className="font-mono font-semibold">
                     {currentPrice != null ? `$${currentPrice.toFixed(2)}` : '—'}
-                  </span>
+                  </div>
                 </div>
               </div>
 
               {/* Right: P&L */}
-              <div className="trade-card-pnl">
+              <div className="text-right">
                 {pnl != null ? (
                   <>
-                    <div className={`trade-pnl-amount ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}`}>
+                    <div className={`font-mono text-sm font-bold ${pnlCls(pnl)}`}>
                       {pnl >= 0 ? '+' : ''}${fmtUSD(pnl)}
                     </div>
                     {pnlPct != null && (
-                      <div className={`trade-pnl-pct ${pnl >= 0 ? 'pnl-positive' : 'pnl-negative'}`}>
+                      <div className={`font-mono text-[11px] font-semibold ${pnlCls(pnl)}`}>
                         {pnl >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
                       </div>
                     )}
                   </>
                 ) : (
-                  <div className="trade-pnl-amount text-muted">—</div>
+                  <div className="font-mono text-sm text-ink-faint">—</div>
                 )}
-                <div className="trade-conf">
+                <div className="mt-0.5 text-[10px] text-ink-faint">
                   {(p.confidence * 100).toFixed(0)}% conf
                 </div>
               </div>
