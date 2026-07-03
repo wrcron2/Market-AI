@@ -66,7 +66,7 @@ func (h *Handler) checkMissingKeys() {
 		title := "Missing API keys: " + strings.Join(missing, ", ")
 		body := "Cloud LLM providers unavailable. Ask AI and signal pipeline will fall back to local Ollama (~7-10 min per call on CPU). Add the keys to .env and restart."
 		h.logger.Warn("askai.missing_keys", zap.Strings("keys", missing))
-		_ = h.db.InsertAlert("HIGH", title, body)
+		_, _ = h.db.InsertAlert("HIGH", title, body)
 		if h.hub != nil {
 			h.hub.Broadcast("alert", map[string]any{"severity": "HIGH", "title": title, "body": body})
 		}
@@ -101,7 +101,7 @@ func (h *Handler) recordCloudFailure(provider string, callErr error) {
 		body := fmt.Sprintf("Cloud provider failed %d times in %s. Falling back to local Ollama (~7-10 min/call). Signal pipeline PAUSED. Last error: %s",
 			h.failCount, fallbackWindow, callErr)
 		h.logger.Error("askai.fallback_activated", zap.String("provider", provider), zap.Error(callErr))
-		_ = h.db.InsertAlert("CRITICAL", title, body)
+		_, _ = h.db.InsertAlert("CRITICAL", title, body)
 		if h.hub != nil {
 			h.hub.Broadcast("alert", map[string]any{"severity": "CRITICAL", "title": title, "body": body})
 			h.hub.Broadcast("llm_fallback", map[string]any{"active": true, "provider": provider, "since": now.Format(time.RFC3339)})
@@ -124,7 +124,7 @@ func (h *Handler) recordCloudSuccess() {
 		title := "LLM Cloud Provider Restored"
 		body := fmt.Sprintf("Cloud inference recovered after fallback since %s. Signal pipeline resumed. Pipeline operating at full speed.", h.fallbackSince.Format(time.RFC3339))
 		h.logger.Info("askai.fallback_cleared")
-		_ = h.db.InsertAlert("INFO", title, body)
+		_, _ = h.db.InsertAlert("INFO", title, body)
 		if h.hub != nil {
 			h.hub.Broadcast("alert", map[string]any{"severity": "INFO", "title": title, "body": body})
 			h.hub.Broadcast("llm_fallback", map[string]any{"active": false})

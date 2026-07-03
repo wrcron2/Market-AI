@@ -32,8 +32,50 @@ func Open(dsn string) (*DB, error) {
 
 // Migrate runs the embedded SQL schema (idempotent).
 func (d *DB) Migrate() error {
-	_, err := d.Exec(schema)
-	return err
+	if _, err := d.Exec(schema); err != nil {
+		return err
+	}
+	return d.addMissingAlertColumns()
+}
+
+// addMissingAlertColumns backfills the count/last_seen_at columns onto an
+// alerts table created before alert deduplication existed. SQLite has no
+// "ADD COLUMN IF NOT EXISTS", so existing columns are checked first.
+func (d *DB) addMissingAlertColumns() error {
+	rows, err := d.Query(`PRAGMA table_info(alerts)`)
+	if err != nil {
+		return err
+	}
+	existing := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notNull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[name] = true
+	}
+	rows.Close()
+
+	if !existing["count"] {
+		if _, err := d.Exec(`ALTER TABLE alerts ADD COLUMN count INTEGER NOT NULL DEFAULT 1`); err != nil {
+			return err
+		}
+	}
+	if !existing["last_seen_at"] {
+		if _, err := d.Exec(`ALTER TABLE alerts ADD COLUMN last_seen_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		// Backfill so pre-existing rows dedup against their own created_at
+		// instead of comparing against epoch 0 on the first post-migration insert.
+		if _, err := d.Exec(`UPDATE alerts SET last_seen_at = created_at WHERE last_seen_at = 0`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ─── Staged Orders ────────────────────────────────────────────────────────────
@@ -738,19 +780,69 @@ func (d *DB) ListRepos(statusFilter string) ([]map[string]any, error) {
 // ─── Alerts ───────────────────────────────────────────────────────────────────
 
 type Alert struct {
-	ID        int64  `json:"id"`
-	Severity  string `json:"severity"`
-	Title     string `json:"title"`
-	Body      string `json:"body"`
-	CreatedAt int64  `json:"created_at"`
+	ID         int64  `json:"id"`
+	Severity   string `json:"severity"`
+	Title      string `json:"title"`
+	Body       string `json:"body"`
+	Count      int    `json:"count"`
+	LastSeenAt int64  `json:"last_seen_at"`
+	CreatedAt  int64  `json:"created_at"`
 }
 
-func (d *DB) InsertAlert(severity, title, body string) error {
-	_, err := d.Exec(
-		`INSERT INTO alerts (severity, title, body, created_at) VALUES (?,?,?,?)`,
-		severity, title, body, time.Now().UnixMilli(),
+// alertDedupWindow matches the brain notifier's original intent of "same
+// alert at most once per hour" — but enforced here, server-side, so it
+// survives brain process restarts instead of resetting with them.
+const alertDedupWindow = time.Hour
+
+// InsertAlert records an alert, collapsing it into the most recent alert of
+// the same severity+title if one arrived within alertDedupWindow. Repeated
+// firings (e.g. one per brain restart) become a single row with a rising
+// count instead of a flood of identical entries.
+func (d *DB) InsertAlert(severity, title, body string) (*Alert, error) {
+	now := time.Now().UnixMilli()
+	cutoff := now - alertDedupWindow.Milliseconds()
+
+	res, err := d.Exec(
+		`UPDATE alerts SET count = count + 1, last_seen_at = ?, body = ?
+		 WHERE id = (
+		     SELECT id FROM alerts
+		     WHERE severity = ? AND title = ? AND last_seen_at >= ?
+		     ORDER BY id DESC LIMIT 1
+		 )`,
+		now, body, severity, title, cutoff,
 	)
-	return err
+	if err != nil {
+		return nil, err
+	}
+	if affected, _ := res.RowsAffected(); affected > 0 {
+		return d.getAlertBySeverityTitle(severity, title)
+	}
+
+	insertRes, err := d.Exec(
+		`INSERT INTO alerts (severity, title, body, count, last_seen_at, created_at) VALUES (?,?,?,1,?,?)`,
+		severity, title, body, now, now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	id, err := insertRes.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+	return &Alert{ID: id, Severity: severity, Title: title, Body: body, Count: 1, LastSeenAt: now, CreatedAt: now}, nil
+}
+
+func (d *DB) getAlertBySeverityTitle(severity, title string) (*Alert, error) {
+	a := &Alert{}
+	err := d.QueryRow(
+		`SELECT id, severity, title, body, count, last_seen_at, created_at
+		 FROM alerts WHERE severity = ? AND title = ? ORDER BY id DESC LIMIT 1`,
+		severity, title,
+	).Scan(&a.ID, &a.Severity, &a.Title, &a.Body, &a.Count, &a.LastSeenAt, &a.CreatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return a, nil
 }
 
 func (d *DB) ListAlerts(limit int) ([]*Alert, error) {
@@ -758,7 +850,7 @@ func (d *DB) ListAlerts(limit int) ([]*Alert, error) {
 		limit = 100
 	}
 	rows, err := d.Query(
-		`SELECT id, severity, title, body, created_at FROM alerts ORDER BY created_at DESC LIMIT ?`, limit,
+		`SELECT id, severity, title, body, count, last_seen_at, created_at FROM alerts ORDER BY last_seen_at DESC LIMIT ?`, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -767,7 +859,7 @@ func (d *DB) ListAlerts(limit int) ([]*Alert, error) {
 	var alerts []*Alert
 	for rows.Next() {
 		a := &Alert{}
-		if err := rows.Scan(&a.ID, &a.Severity, &a.Title, &a.Body, &a.CreatedAt); err == nil {
+		if err := rows.Scan(&a.ID, &a.Severity, &a.Title, &a.Body, &a.Count, &a.LastSeenAt, &a.CreatedAt); err == nil {
 			alerts = append(alerts, a)
 		}
 	}
@@ -1208,15 +1300,20 @@ CREATE TABLE IF NOT EXISTS github_repo_scout (
 CREATE INDEX IF NOT EXISTS idx_repos_status ON github_repo_scout (status, first_seen_at DESC);
 
 CREATE TABLE IF NOT EXISTS alerts (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    severity   TEXT NOT NULL CHECK (severity IN ('CRITICAL','HIGH','MEDIUM','INFO')),
-    title      TEXT NOT NULL,
-    body       TEXT NOT NULL DEFAULT '',
-    created_at INTEGER NOT NULL
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    severity     TEXT NOT NULL CHECK (severity IN ('CRITICAL','HIGH','MEDIUM','INFO')),
+    title        TEXT NOT NULL,
+    body         TEXT NOT NULL DEFAULT '',
+    count        INTEGER NOT NULL DEFAULT 1,
+    last_seen_at INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_alerts_created
-    ON alerts (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_last_seen
+    ON alerts (last_seen_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_dedup
+    ON alerts (severity, title, last_seen_at DESC);
 
 CREATE TABLE IF NOT EXISTS threshold_store (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,

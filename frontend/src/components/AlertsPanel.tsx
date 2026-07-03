@@ -6,6 +6,8 @@ interface Alert {
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'INFO'
   title: string
   body: string
+  count: number
+  last_seen_at: number
   created_at: number
 }
 
@@ -169,6 +171,12 @@ export function AlertsPanel() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ color: cfg.color }}>{cfg.icon}</span>
                   <span style={{ color: '#e2e8f0', fontWeight: 700, fontSize: 14 }}>{alert.title}</span>
+                  {alert.count > 1 && (
+                    <span style={{
+                      background: cfg.color + '22', color: cfg.color,
+                      borderRadius: 6, padding: '1px 6px', fontSize: 11, fontWeight: 700,
+                    }}>×{alert.count}</span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
                   <span style={{
@@ -176,9 +184,15 @@ export function AlertsPanel() {
                     border: `1px solid ${cfg.color}55`,
                     borderRadius: 6, padding: '2px 7px', fontSize: 10, fontWeight: 700,
                   }}>{alert.severity}</span>
-                  <span style={{ color: '#475569', fontSize: 11 }}>{timeAgo(alert.created_at)}</span>
+                  <span style={{ color: '#475569', fontSize: 11 }}>{timeAgo(alert.last_seen_at || alert.created_at)}</span>
                 </div>
               </div>
+
+              {alert.count > 1 && (
+                <div style={{ color: '#475569', fontSize: 11, marginBottom: 6 }}>
+                  First seen {timeAgo(alert.created_at)}
+                </div>
+              )}
 
               {alert.body && (
                 <p style={{

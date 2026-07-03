@@ -573,16 +573,14 @@ func main() {
 				http.Error(w, "invalid body", http.StatusBadRequest)
 				return
 			}
-			if err := database.InsertAlert(req.Severity, req.Title, req.Body); err != nil {
+			alert, err := database.InsertAlert(req.Severity, req.Title, req.Body)
+			if err != nil {
 				http.Error(w, "insert failed", http.StatusInternalServerError)
 				return
 			}
-			hub.Broadcast("alert", map[string]any{
-				"severity": req.Severity,
-				"title":    req.Title,
-				"body":     req.Body,
-			})
-			logger.Info("alert received", zap.String("severity", req.Severity), zap.String("title", req.Title))
+			hub.Broadcast("alert", alert)
+			logger.Info("alert received",
+				zap.String("severity", req.Severity), zap.String("title", req.Title), zap.Int("count", alert.Count))
 			writeJSON(w, map[string]any{"success": true})
 
 		default:
