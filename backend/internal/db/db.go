@@ -245,19 +245,44 @@ type AuditLogEntry struct {
 	Timestamp  int64  `json:"timestamp"`
 }
 
-// ListAuditLog returns the most recent N audit log entries across all orders.
-func (d *DB) ListAuditLog(limit int) ([]*AuditLogEntry, error) {
+// ListAuditLog returns paginated audit log entries, optionally filtered by to_status.
+// Pass filter="" for all entries. Returns entries and total matching count.
+func (d *DB) ListAuditLog(limit, offset int, filter string) ([]*AuditLogEntry, int, error) {
 	if limit <= 0 {
-		limit = 200
+		limit = 50
 	}
-	rows, err := d.Query(`
-		SELECT id, signal_id, COALESCE(from_status,''), to_status,
-		       actor, COALESCE(message,''), timestamp
-		FROM order_audit_log
-		ORDER BY timestamp DESC
-		LIMIT ?`, limit)
+
+	var (
+		rows *sql.Rows
+		err  error
+		total int
+	)
+	if filter != "" {
+		err = d.QueryRow(`SELECT COUNT(*) FROM order_audit_log WHERE to_status = ?`, filter).Scan(&total)
+		if err != nil {
+			return nil, 0, err
+		}
+		rows, err = d.Query(`
+			SELECT id, signal_id, COALESCE(from_status,''), to_status,
+			       actor, COALESCE(message,''), timestamp
+			FROM order_audit_log
+			WHERE to_status = ?
+			ORDER BY timestamp DESC
+			LIMIT ? OFFSET ?`, filter, limit, offset)
+	} else {
+		err = d.QueryRow(`SELECT COUNT(*) FROM order_audit_log`).Scan(&total)
+		if err != nil {
+			return nil, 0, err
+		}
+		rows, err = d.Query(`
+			SELECT id, signal_id, COALESCE(from_status,''), to_status,
+			       actor, COALESCE(message,''), timestamp
+			FROM order_audit_log
+			ORDER BY timestamp DESC
+			LIMIT ? OFFSET ?`, limit, offset)
+	}
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var out []*AuditLogEntry
@@ -265,11 +290,11 @@ func (d *DB) ListAuditLog(limit int) ([]*AuditLogEntry, error) {
 		e := &AuditLogEntry{}
 		if err := rows.Scan(&e.ID, &e.SignalID, &e.FromStatus, &e.ToStatus,
 			&e.Actor, &e.Message, &e.Timestamp); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, e)
 	}
-	return out, nil
+	return out, total, nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -54,6 +54,15 @@ func main() {
 	}
 	logger.Info("database ready", zap.String("dsn", dsn))
 
+	// ─── Startup sweep: expire PENDING signals from previous sessions ─────────
+	// The market-watcher only triggers on state *changes*, so if the server was
+	// down at market close/open, old PENDING orders would never get cleaned up.
+	if expired, err := database.ExpirePendingSignals("startup", "Server restarted — stale signals from previous session expired"); err != nil {
+		logger.Warn("startup sweep failed", zap.Error(err))
+	} else if expired > 0 {
+		logger.Info("startup: expired stale PENDING signals", zap.Int("count", expired))
+	}
+
 	// ─── Trading Mode Manager (Yahoo simulation ↔ IBKR live) ─────────────────
 	modeManager := mode.NewManager(logger)
 	logger.Info("trading mode initialised", zap.String("mode", string(modeManager.Get())))
@@ -546,12 +555,14 @@ func main() {
 			return
 		}
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		entries, err := database.ListAuditLog(limit)
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		filter := r.URL.Query().Get("filter") // to_status filter, e.g. "PENDING"
+		entries, total, err := database.ListAuditLog(limit, offset, filter)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"entries": entries})
+		writeJSON(w, map[string]any{"entries": entries, "total": total})
 	})
 
 	// ─── Retry a failed order ─────────────────────────────────────────────────
