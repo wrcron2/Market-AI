@@ -867,9 +867,7 @@ func (d *DB) GetStrategyBreakdown() ([]StrategyReport, error) {
 			COALESCE(MAX(p.realized_pnl), 0),
 			COALESCE(MIN(p.realized_pnl), 0)
 		FROM positions p
-		LEFT JOIN staged_orders so ON so.symbol = p.symbol
-			AND so.status = 'EXECUTED'
-			AND ABS(so.updated_at - p.entry_time) < 60000
+		LEFT JOIN staged_orders so ON so.id = p.id
 		WHERE p.status = 'CLOSED' AND p.realized_pnl IS NOT NULL
 		GROUP BY strat
 		ORDER BY COALESCE(SUM(p.realized_pnl), 0) DESC`)
