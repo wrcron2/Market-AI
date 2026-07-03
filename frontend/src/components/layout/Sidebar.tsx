@@ -2,6 +2,7 @@ import { type ComponentType } from 'react'
 import {
   Activity,
   TrendingUp,
+  BarChart3,
   GitBranch,
   Bell,
   ScrollText,
@@ -37,7 +38,10 @@ interface Props {
 export function Sidebar({ collapsed, active, pendingCount, mode, marketOpen, onNavigate, onToggle }: Props) {
   const groups: NavGroup[] = [
     { label: 'Trading', items: [{ tab: 'signals', label: 'Live Signals', icon: Activity, badge: pendingCount }] },
-    { label: 'Performance', items: [{ tab: 'portfolio', label: 'Alpaca Portfolio', icon: TrendingUp }] },
+    { label: 'Performance', items: [
+      { tab: 'portfolio', label: 'Alpaca Portfolio', icon: TrendingUp },
+      { tab: 'reports', label: 'Strategy Reports', icon: BarChart3 },
+    ] },
     { label: 'AI Pipeline', items: [{ tab: 'pipeline', label: 'Pipeline', icon: GitBranch }] },
     {
       label: 'Monitoring',

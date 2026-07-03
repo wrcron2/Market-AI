@@ -271,6 +271,46 @@ func main() {
 		writeJSON(w, limits)
 	})
 
+	// ─── Reports ─────────────────────────────────────────────────────────────
+	mux.HandleFunc("/api/reports/overview", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		strategies, _ := database.GetStrategyBreakdown()
+		weekly, _ := database.GetWeeklyProgress()
+		recentTrades, _ := database.GetRecentClosedTrades(20)
+		outcomeStats, _ := database.GetOutcomeStats()
+		orderStats, _ := database.GetStats()
+		allTimePnl, _ := database.GetAllTimePnl()
+
+		var totalClosed, totalWins int
+		var totalRealizedPnl float64
+		for _, s := range strategies {
+			totalClosed += s.TotalTrades
+			totalWins += s.Winners
+			totalRealizedPnl += s.TotalPnl
+		}
+		var overallWinRate float64
+		if totalClosed > 0 {
+			overallWinRate = float64(totalWins) / float64(totalClosed) * 100
+		}
+
+		writeJSON(w, map[string]any{
+			"strategies":     strategies,
+			"weekly":         weekly,
+			"recent_trades":  recentTrades,
+			"outcome_stats":  outcomeStats,
+			"order_stats":    orderStats,
+			"all_time_pnl":   allTimePnl,
+			"total_closed":   totalClosed,
+			"total_wins":     totalWins,
+			"overall_win_rate": overallWinRate,
+			"total_realized_pnl": totalRealizedPnl,
+		})
+	})
+
 	// ─── Signal postmortem ────────────────────────────────────────────────────
 	mux.HandleFunc("/api/signal-outcomes/stats", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

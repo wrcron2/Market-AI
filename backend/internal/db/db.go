@@ -841,6 +841,138 @@ func (d *DB) ListThresholds() ([]*ThresholdEntry, error) {
 	return entries, nil
 }
 
+// ─── Reports ─────────────────────────────────────────────────────────────────
+
+type StrategyReport struct {
+	StrategyName string  `json:"strategy_name"`
+	TotalTrades  int     `json:"total_trades"`
+	Winners      int     `json:"winners"`
+	Losers       int     `json:"losers"`
+	WinRate      float64 `json:"win_rate"`
+	TotalPnl     float64 `json:"total_pnl"`
+	AvgPnl       float64 `json:"avg_pnl"`
+	BestTrade    float64 `json:"best_trade"`
+	WorstTrade   float64 `json:"worst_trade"`
+}
+
+func (d *DB) GetStrategyBreakdown() ([]StrategyReport, error) {
+	rows, err := d.Query(`
+		SELECT
+			COALESCE(so.strategy_name, 'unknown') AS strat,
+			COUNT(*) AS total,
+			SUM(CASE WHEN p.realized_pnl > 0 THEN 1 ELSE 0 END),
+			SUM(CASE WHEN p.realized_pnl <= 0 THEN 1 ELSE 0 END),
+			COALESCE(SUM(p.realized_pnl), 0),
+			COALESCE(AVG(p.realized_pnl), 0),
+			COALESCE(MAX(p.realized_pnl), 0),
+			COALESCE(MIN(p.realized_pnl), 0)
+		FROM positions p
+		LEFT JOIN staged_orders so ON so.symbol = p.symbol
+			AND so.status = 'EXECUTED'
+			AND ABS(so.updated_at - p.entry_time) < 60000
+		WHERE p.status = 'CLOSED' AND p.realized_pnl IS NOT NULL
+		GROUP BY strat
+		ORDER BY COALESCE(SUM(p.realized_pnl), 0) DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StrategyReport
+	for rows.Next() {
+		var r StrategyReport
+		if err := rows.Scan(&r.StrategyName, &r.TotalTrades, &r.Winners, &r.Losers,
+			&r.TotalPnl, &r.AvgPnl, &r.BestTrade, &r.WorstTrade); err != nil {
+			continue
+		}
+		if r.TotalTrades > 0 {
+			r.WinRate = float64(r.Winners) / float64(r.TotalTrades) * 100
+		}
+		out = append(out, r)
+	}
+	return out, nil
+}
+
+type WeeklyProgress struct {
+	Week      string  `json:"week"`
+	Trades    int     `json:"trades"`
+	Pnl       float64 `json:"pnl"`
+	CumPnl    float64 `json:"cum_pnl"`
+	Winners   int     `json:"winners"`
+	Losers    int     `json:"losers"`
+}
+
+func (d *DB) GetWeeklyProgress() ([]WeeklyProgress, error) {
+	rows, err := d.Query(`
+		SELECT
+			strftime('%Y-W%W', exit_time/1000, 'unixepoch') AS week,
+			COUNT(*),
+			COALESCE(SUM(realized_pnl), 0),
+			SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END),
+			SUM(CASE WHEN realized_pnl <= 0 THEN 1 ELSE 0 END)
+		FROM positions
+		WHERE status = 'CLOSED' AND realized_pnl IS NOT NULL AND exit_time IS NOT NULL
+		GROUP BY week
+		ORDER BY week ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WeeklyProgress
+	var cumPnl float64
+	for rows.Next() {
+		var w WeeklyProgress
+		if err := rows.Scan(&w.Week, &w.Trades, &w.Pnl, &w.Winners, &w.Losers); err != nil {
+			continue
+		}
+		cumPnl += w.Pnl
+		w.CumPnl = cumPnl
+		out = append(out, w)
+	}
+	return out, nil
+}
+
+type RecentTrade struct {
+	Symbol    string  `json:"symbol"`
+	Direction string  `json:"direction"`
+	Pnl       float64 `json:"pnl"`
+	PnlPct    float64 `json:"pnl_pct"`
+	ExitTime  int64   `json:"exit_time"`
+	Reason    string  `json:"reason"`
+	HoldDays  float64 `json:"hold_days"`
+}
+
+func (d *DB) GetRecentClosedTrades(limit int) ([]RecentTrade, error) {
+	rows, err := d.Query(`
+		SELECT symbol, direction,
+			COALESCE(realized_pnl, 0),
+			CASE WHEN entry_price > 0 AND quantity > 0
+				THEN COALESCE(realized_pnl, 0) / (entry_price * quantity) * 100
+				ELSE 0 END,
+			COALESCE(exit_time, 0),
+			COALESCE(close_reason, ''),
+			CASE WHEN exit_time IS NOT NULL AND entry_time > 0
+				THEN CAST((exit_time - entry_time) AS REAL) / 86400000.0
+				ELSE 0 END
+		FROM positions
+		WHERE status = 'CLOSED' AND realized_pnl IS NOT NULL
+		ORDER BY exit_time DESC
+		LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RecentTrade
+	for rows.Next() {
+		var t RecentTrade
+		if err := rows.Scan(&t.Symbol, &t.Direction, &t.Pnl, &t.PnlPct,
+			&t.ExitTime, &t.Reason, &t.HoldDays); err != nil {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
 // ─── Embedded Schema ──────────────────────────────────────────────────────────
 
 const schema = `

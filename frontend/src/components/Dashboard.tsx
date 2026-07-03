@@ -10,6 +10,7 @@ import { VersionsPanel } from './VersionsPanel'
 import { AuditLog } from './AuditLog'
 import { AlertsPanel } from './AlertsPanel'
 import { PipelinePanel } from './PipelinePanel'
+import { ReportsPanel } from './ReportsPanel'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useMarketStatus } from '../hooks/useMarketStatus'
 import type { StagedOrder, ListPendingResponse } from '../types'
@@ -23,11 +24,12 @@ const API_BASE = '/api'
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 const MAX_FEED_EVENTS = 100
 
-export type Tab = 'signals' | 'portfolio' | 'alerts' | 'audit' | 'versions' | 'pipeline' | 'config'
+export type Tab = 'signals' | 'portfolio' | 'reports' | 'alerts' | 'audit' | 'versions' | 'pipeline' | 'config'
 
 const BREADCRUMB: Record<Tab, string> = {
   signals: 'Live Signals',
   portfolio: 'Alpaca Portfolio',
+  reports: 'Strategy Reports',
   alerts: 'Alerts',
   audit: 'Audit Log',
   versions: 'Versions & Deploy',
@@ -308,6 +310,7 @@ export function Dashboard() {
       {activeTab === 'portfolio' && (
         <AlpacaPortfolio llmAlert={llmAlert} onClearAlert={() => setLlmAlert(null)} />
       )}
+      {activeTab === 'reports' && <ReportsPanel />}
       {activeTab === 'alerts' && <AlertsPanel />}
       {activeTab === 'audit' && <AuditLog />}
       {activeTab === 'versions' && <VersionsPanel />}
