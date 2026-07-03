@@ -14,6 +14,7 @@ services:
       - ./infra/versions:/app/versions   # version history + switch requests
       - ./agents:/app/agents             # pipeline agent prompts
       - ./logs:/app/logs                 # pipeline agent logs
+      - ./reports:/app/status-reports:ro # Chief PM markdown audit reports
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

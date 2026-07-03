@@ -8,6 +8,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Cell,
 } from 'recharts'
 import { EndOfDayReport } from './EndOfDayReport'
+import { StatusReportsTable } from './StatusReportsTable'
 
 interface StrategyReport {
   strategy_name: string
@@ -158,6 +159,8 @@ export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } =
       </div>
 
       <EndOfDayReport refreshToken={eodRefreshToken} />
+
+      <StatusReportsTable />
 
       {/* Hero stats row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">

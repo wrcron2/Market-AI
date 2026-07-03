@@ -1,0 +1,13 @@
+{
+  "date": "2026-07-03",
+  "headline": "Equity up to $110,130 (+4.42%), but QQQ was sized to 72.5% of equity — ~9x the account's own 8% cap, enforced only in an LLM prompt with zero code-level backstop.",
+  "equity": 110129.95,
+  "all_time_return_pct": 10.13,
+  "signals_pending": 487,
+  "oldest_pending_days": 41,
+  "largest_position_pct_equity": 72.5,
+  "largest_position_symbol": "QQQ",
+  "findings": { "red": 4, "yellow": 5, "green": 5 },
+  "red_total_prior": 3,
+  "red_resolved_from_prior": 0
+}

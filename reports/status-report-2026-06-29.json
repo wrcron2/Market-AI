@@ -1,0 +1,13 @@
+{
+  "date": "2026-06-29",
+  "headline": "Oracle live audit: $105,469 equity (+5.47% all-time), but 484 signals sit in PENDING — the Green Light gate is not being exercised.",
+  "equity": 105469.07,
+  "all_time_return_pct": 5.47,
+  "signals_pending": 484,
+  "oldest_pending_days": null,
+  "largest_position_pct_equity": 69.2,
+  "largest_position_symbol": "AMP",
+  "findings": { "red": 3, "yellow": 4, "green": 5 },
+  "red_total_prior": null,
+  "red_resolved_from_prior": null
+}

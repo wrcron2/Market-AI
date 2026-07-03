@@ -26,6 +26,7 @@ import (
 	"github.com/marketflow/backend/internal/mode"
 	"github.com/marketflow/backend/internal/notify"
 	"github.com/marketflow/backend/internal/pipeline"
+	"github.com/marketflow/backend/internal/statusreports"
 	"github.com/marketflow/backend/internal/versions"
 	"github.com/marketflow/backend/internal/ws"
 	proto "github.com/marketflow/backend/proto"
@@ -401,6 +402,10 @@ func main() {
 		}
 		writeJSON(w, report)
 	})
+
+	// Chief PM markdown audit reports (reports/*.md + sidecar reports/*.json)
+	mux.HandleFunc("/api/reports/status", statusreports.List)
+	mux.HandleFunc("/api/reports/status/{date}/markdown", statusreports.Markdown)
 
 	mux.HandleFunc("/api/reports/eod/dates", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
