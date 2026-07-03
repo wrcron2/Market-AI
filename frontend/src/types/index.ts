@@ -38,6 +38,7 @@ export type WsMessageType =
   | 'alert'
   | 'llm_fallback'
   | 'mode_changed'
+  | 'eod_report_ready'
 
 export interface WsMessage {
   type: WsMessageType

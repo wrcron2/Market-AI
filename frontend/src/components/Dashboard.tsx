@@ -37,12 +37,21 @@ const BREADCRUMB: Record<Tab, string> = {
   config: 'Configuration',
 }
 
+const TAB_VALUES = Object.keys({
+  signals: 0, portfolio: 0, reports: 0, alerts: 0, audit: 0, versions: 0, pipeline: 0, config: 0,
+} satisfies Record<Tab, number>) as Tab[]
+
+function initialTabFromUrl(): Tab {
+  const requested = new URLSearchParams(window.location.search).get('tab')
+  return (TAB_VALUES as string[]).includes(requested ?? '') ? (requested as Tab) : 'signals'
+}
+
 export function Dashboard() {
   const { mode, changeMode } = useTradingMode()
   const { enabled: autoExec, toggle } = useAutoExecute()
   const { provider: llmProvider, changeProvider } = useLLMProvider()
   const { isOpen: marketOpen, minutesUntilClose: marketMinutes } = useMarketStatus()
-  const [activeTab, setActiveTab] = useState<Tab>('signals')
+  const [activeTab, setActiveTab] = useState<Tab>(initialTabFromUrl)
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [askOpen, setAskOpen] = useState(true)
   const [pendingOrders, setPendingOrders] = useState<StagedOrder[]>([])
@@ -51,6 +60,7 @@ export function Dashboard() {
   const [llmAlert, setLlmAlert] = useState<string | null>(null)
   const [llmFallbackActive, setLlmFallbackActive] = useState(false)
   const [equity, setEquity] = useState<number | null>(null)
+  const [eodRefreshToken, setEodRefreshToken] = useState(0)
   const [stats, setStats] = useState<Stats>({
     totalSignals: 0,
     approved: 0,
@@ -137,6 +147,9 @@ export function Dashboard() {
       llm_fallback: (payload) => {
         const { active } = payload as { active: boolean }
         setLlmFallbackActive(active)
+      },
+      eod_report_ready: () => {
+        setEodRefreshToken((t) => t + 1)
       },
     },
   })
@@ -310,7 +323,7 @@ export function Dashboard() {
       {activeTab === 'portfolio' && (
         <AlpacaPortfolio llmAlert={llmAlert} onClearAlert={() => setLlmAlert(null)} />
       )}
-      {activeTab === 'reports' && <ReportsPanel />}
+      {activeTab === 'reports' && <ReportsPanel eodRefreshToken={eodRefreshToken} />}
       {activeTab === 'alerts' && <AlertsPanel />}
       {activeTab === 'audit' && <AuditLog />}
       {activeTab === 'versions' && <VersionsPanel />}

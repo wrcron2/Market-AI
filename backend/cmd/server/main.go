@@ -311,6 +311,110 @@ func main() {
 		})
 	})
 
+	// ─── End-of-Day Report ────────────────────────────────────────────────────
+	// Aggregated data the brain needs to draft the narrative EOD report.
+	mux.HandleFunc("/api/reports/eod/today-data", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		todayTrades, _ := database.GetTodayClosedTrades()
+		todayLimits, _ := database.GetTodayLimits()
+		openPositions, _ := database.ListOpenPositions()
+		orderStats, _ := database.GetStats()
+		outcomeStats, _ := database.GetOutcomeStats()
+		allTimePnl, _ := database.GetAllTimePnl()
+
+		var winners int
+		for _, t := range todayTrades {
+			if t.Pnl > 0 {
+				winners++
+			}
+		}
+		var winRate float64
+		if len(todayTrades) > 0 {
+			winRate = float64(winners) / float64(len(todayTrades)) * 100
+		}
+
+		writeJSON(w, map[string]any{
+			"today_trades":       todayTrades,
+			"today_realized_pnl": todayLimits.RealizedPnl,
+			"today_trade_count":  todayLimits.TradeCount,
+			"today_win_rate":     winRate,
+			"open_positions":     openPositions,
+			"order_stats":        orderStats,
+			"outcome_stats":      outcomeStats,
+			"all_time_pnl":       allTimePnl,
+		})
+	})
+
+	// Persisted narrative report, one per trading day. Brain POSTs after the
+	// post-market EOD sweep; dashboard GETs by date (or /latest) to display it.
+	mux.HandleFunc("/api/reports/eod", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			date := r.URL.Query().Get("date")
+			if date == "" {
+				http.Error(w, "date query param required", http.StatusBadRequest)
+				return
+			}
+			report, err := database.GetEODReportByDate(date)
+			if err != nil {
+				http.Error(w, "report not found", http.StatusNotFound)
+				return
+			}
+			writeJSON(w, report)
+
+		case http.MethodPost:
+			var req db.EODReport
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+			if req.Date == "" || req.Markdown == "" {
+				http.Error(w, "date and markdown are required", http.StatusBadRequest)
+				return
+			}
+			if err := database.UpsertEODReport(&req); err != nil {
+				logger.Error("failed to save EOD report", zap.Error(err))
+				http.Error(w, "save failed", http.StatusInternalServerError)
+				return
+			}
+			hub.Broadcast("eod_report_ready", map[string]any{"date": req.Date})
+			logger.Info("eod report saved", zap.String("date", req.Date))
+			writeJSON(w, map[string]any{"success": true})
+
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+	mux.HandleFunc("/api/reports/eod/latest", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		report, err := database.GetLatestEODReport()
+		if err != nil {
+			http.Error(w, "no reports yet", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, report)
+	})
+
+	mux.HandleFunc("/api/reports/eod/dates", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		dates, err := database.ListEODReportDates(30)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"dates": dates})
+	})
+
 	// ─── Signal postmortem ────────────────────────────────────────────────────
 	mux.HandleFunc("/api/signal-outcomes/stats", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

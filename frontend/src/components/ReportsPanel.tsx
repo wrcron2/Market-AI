@@ -7,6 +7,7 @@ import {
   ResponsiveContainer, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Cell,
 } from 'recharts'
+import { EndOfDayReport } from './EndOfDayReport'
 
 interface StrategyReport {
   strategy_name: string
@@ -83,7 +84,7 @@ function fmtDate(ms: number): string {
 const pnlColor = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-red-400')
 const pnlSign = (v: number) => (v >= 0 ? '+' : '')
 
-export function ReportsPanel() {
+export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } = {}) {
   const [data, setData] = useState<ReportData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -155,6 +156,8 @@ export function ReportsPanel() {
           Track trading progress, strategy performance, and signal accuracy.
         </p>
       </div>
+
+      <EndOfDayReport refreshToken={eodRefreshToken} />
 
       {/* Hero stats row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
