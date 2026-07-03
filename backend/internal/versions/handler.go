@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/marketflow/backend/internal/db"
 )
 
 const (
@@ -17,25 +19,40 @@ const (
 	notesDir    = "/app/versions/notes"
 )
 
+// Handler holds the DB dependency for version-label persistence.
+type Handler struct {
+	db *db.DB
+}
+
+// New builds a version Handler backed by the given database.
+func New(database *db.DB) *Handler {
+	return &Handler{db: database}
+}
+
 // Version represents one deployed build.
 type Version struct {
 	Tag       string `json:"tag"`
 	Timestamp string `json:"timestamp"`
 	GitSHA    string `json:"git_sha"`
 	Note      string `json:"note"`
+	Label     string `json:"label"`
 	Active    bool   `json:"active"`
 }
 
 // List returns all recorded versions with the active one marked.
 // GET /api/versions
-func List(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	current := strings.TrimSpace(readFile(currentFile))
-	versions := parseHistory(historyFile, current)
+	labels, err := h.db.ListVersionLabels()
+	if err != nil {
+		labels = map[string]string{}
+	}
+	versions := parseHistory(historyFile, current, labels)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
@@ -46,7 +63,7 @@ func List(w http.ResponseWriter, r *http.Request) {
 
 // Switch writes a switch request for the host watcher to pick up.
 // POST /api/versions/switch  { "version": "20260524-2126" }
-func Switch(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) Switch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -74,7 +91,7 @@ func Switch(w http.ResponseWriter, r *http.Request) {
 
 // UpdateNote saves a description for a specific version.
 // PATCH /api/versions/{version}/note  { "note": "some text" }
-func UpdateNote(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) UpdateNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPatch {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -105,9 +122,41 @@ func UpdateNote(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"success": true})
 }
 
+// UpdateLabel saves a user-defined tag for a specific version (e.g. "WORKING", "STABLE").
+// Persisted in the version_labels DB table so it survives independently of the deploy history files.
+// PATCH /api/versions/{version}/label  { "label": "WORKING" }
+func (h *Handler) UpdateLabel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPatch {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	version := r.PathValue("version")
+	if version == "" || strings.Contains(version, "..") {
+		http.Error(w, "invalid version", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Label string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.db.UpsertVersionLabel(version, strings.TrimSpace(req.Label)); err != nil {
+		http.Error(w, "failed to save tag", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"success": true})
+}
+
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-func parseHistory(path, current string) []Version {
+func parseHistory(path, current string, labels map[string]string) []Version {
 	f, err := os.Open(path)
 	if err != nil {
 		return []Version{}
@@ -130,6 +179,7 @@ func parseHistory(path, current string) []Version {
 			v.GitSHA = parts[3]
 		}
 		v.Note = strings.TrimSpace(readFile(filepath.Join(notesDir, v.Tag)))
+		v.Label = labels[v.Tag]
 		v.Active = v.Tag == current
 		versions = append(versions, v)
 	}

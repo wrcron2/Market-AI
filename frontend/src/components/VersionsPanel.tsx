@@ -6,6 +6,7 @@ interface Version {
   timestamp: string
   git_sha: string
   note: string
+  label: string
   active: boolean
 }
 
@@ -20,6 +21,9 @@ export function VersionsPanel() {
   const [editing, setEditing] = useState<string | null>(null)
   const [draftNote, setDraftNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const [editingLabel, setEditingLabel] = useState<string | null>(null)
+  const [draftLabel, setDraftLabel] = useState('')
+  const [savingLabel, setSavingLabel] = useState(false)
 
   const fetchVersions = useCallback(async () => {
     try {
@@ -99,6 +103,32 @@ export function VersionsPanel() {
     }
   }
 
+  const startEditLabel = (v: Version) => {
+    setEditingLabel(v.tag)
+    setDraftLabel(v.label)
+  }
+  const cancelEditLabel = () => {
+    setEditingLabel(null)
+    setDraftLabel('')
+  }
+  const saveLabel = async (tag: string) => {
+    setSavingLabel(true)
+    try {
+      const res = await fetch(`/api/versions/${tag}/label`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: draftLabel }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setVersions((prev) => prev.map((v) => (v.tag === tag ? { ...v, label: draftLabel } : v)))
+      setEditingLabel(null)
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setSavingLabel(false)
+    }
+  }
+
   if (loading) return <div className="p-6 text-sm text-ink-faint">Loading versions…</div>
 
   return (
@@ -139,6 +169,7 @@ export function VersionsPanel() {
                   <th className={TH}>Deployed</th>
                   <th className={TH}>Git SHA</th>
                   <th className={TH}>Description</th>
+                  <th className={TH}>Tag</th>
                   <th className={TH}>Status</th>
                   <th className={TH}></th>
                 </tr>
@@ -188,6 +219,48 @@ export function VersionsPanel() {
                             <span className="text-ink-muted">{v.note}</span>
                           ) : (
                             <span className="text-ink-faint italic">Add description…</span>
+                          )}
+                          <Pencil size={11} className="text-ink-faint opacity-0 group-hover:opacity-100" />
+                        </button>
+                      )}
+                    </td>
+                    <td className={`${TD} min-w-[140px]`}>
+                      {editingLabel === v.tag ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={draftLabel}
+                            onChange={(e) => setDraftLabel(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') saveLabel(v.tag)
+                              if (e.key === 'Escape') cancelEditLabel()
+                            }}
+                            autoFocus
+                            placeholder="e.g. WORKING"
+                            className="w-24 rounded-md border border-line-soft bg-base px-2 py-1.5 text-xs text-ink outline-none focus:border-signal-blue"
+                          />
+                          <button
+                            onClick={() => saveLabel(v.tag)}
+                            disabled={savingLabel}
+                            className="rounded-md bg-signal-blue px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                          >
+                            {savingLabel ? '…' : 'Save'}
+                          </button>
+                          <button onClick={cancelEditLabel} className="px-1.5 text-ink-muted hover:text-ink">
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => startEditLabel(v)}
+                          title="Click to tag this version"
+                          className="group flex items-center gap-2 text-left"
+                        >
+                          {v.label ? (
+                            <span className="inline-flex items-center rounded-full border border-line-soft bg-surface-hover px-2 py-0.5 text-[11px] font-semibold text-ink-muted">
+                              {v.label}
+                            </span>
+                          ) : (
+                            <span className="text-ink-faint italic">Add tag…</span>
                           )}
                           <Pencil size={11} className="text-ink-faint opacity-0 group-hover:opacity-100" />
                         </button>

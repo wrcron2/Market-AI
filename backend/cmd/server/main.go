@@ -68,6 +68,7 @@ func main() {
 
 	projectRoot := getEnv("PROJECT_ROOT", ".")
 	pipelineHandler := pipeline.New(projectRoot, database, logger)
+	versionsHandler := versions.New(database)
 
 	// ─── Auto-Execute toggle (in-memory, resets to false on restart) ──────────
 	var autoExMu   sync.RWMutex
@@ -696,9 +697,10 @@ func main() {
 	})
 
 	// ─── Version management ────────────────────────────────────────────────────
-	mux.HandleFunc("/api/versions",                    versions.List)
-	mux.HandleFunc("/api/versions/switch",             versions.Switch)
-	mux.HandleFunc("/api/versions/{version}/note",     versions.UpdateNote)
+	mux.HandleFunc("/api/versions",                    versionsHandler.List)
+	mux.HandleFunc("/api/versions/switch",             versionsHandler.Switch)
+	mux.HandleFunc("/api/versions/{version}/note",     versionsHandler.UpdateNote)
+	mux.HandleFunc("/api/versions/{version}/label",    versionsHandler.UpdateLabel)
 
 	// ─── Repo Scout & Research Pipeline ─────────────────────────────────────────
 	mux.HandleFunc("/api/pipeline/repos",          pipelineHandler.Repos)

@@ -841,6 +841,39 @@ func (d *DB) ListThresholds() ([]*ThresholdEntry, error) {
 	return entries, nil
 }
 
+// ─── Version Labels ──────────────────────────────────────────────────────────
+
+// UpsertVersionLabel sets the user-defined tag (e.g. "WORKING", "STABLE") for a deployed version.
+func (d *DB) UpsertVersionLabel(version, label string) error {
+	_, err := d.Exec(`
+		INSERT INTO version_labels (version, label, updated_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(version) DO UPDATE SET
+			label      = excluded.label,
+			updated_at = excluded.updated_at`,
+		version, label, nowMs(),
+	)
+	return err
+}
+
+// ListVersionLabels returns a version -> label map for all tagged versions.
+func (d *DB) ListVersionLabels() (map[string]string, error) {
+	rows, err := d.Query(`SELECT version, label FROM version_labels`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	labels := make(map[string]string)
+	for rows.Next() {
+		var version, label string
+		if err := rows.Scan(&version, &label); err == nil {
+			labels[version] = label
+		}
+	}
+	return labels, nil
+}
+
 // ─── Reports ─────────────────────────────────────────────────────────────────
 
 type StrategyReport struct {
@@ -1228,5 +1261,11 @@ CREATE TABLE IF NOT EXISTS threshold_store (
     min_confidence   REAL NOT NULL DEFAULT 0.70,
     updated_at       INTEGER NOT NULL,
     UNIQUE(strategy_name, confidence_bucket, spy_trend)
+);
+
+CREATE TABLE IF NOT EXISTS version_labels (
+    version    TEXT PRIMARY KEY,
+    label      TEXT NOT NULL DEFAULT '',
+    updated_at INTEGER NOT NULL
 );
 `
