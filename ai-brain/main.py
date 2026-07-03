@@ -217,6 +217,7 @@ def main() -> None:
     from agents.position_monitor import PositionMonitorAgent
     from db.position_store import PositionStore
     from alerts.notifier import Notifier
+    from reports.eod_report import maybe_generate_eod_report
 
     backend_host = os.getenv("BRAIN_HOST", "127.0.0.1")
     backend_port = os.getenv("GO_SERVER_PORT", "8080")
@@ -271,6 +272,11 @@ def main() -> None:
         bar_count    += 1
         current_mode  = _get_current_mode()
         window        = _market_window()
+
+        # ── End-of-day report — generated once per day during the post-market
+        # window, after the EOD position sweep has had a chance to run.
+        if window == "post_market":
+            maybe_generate_eod_report(backend_url, alpaca, orchestrator.router)
 
         # ── Sleep outside scan windows ─────────────────────────────────────────
         if window == "closed":
