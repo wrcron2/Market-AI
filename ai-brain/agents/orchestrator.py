@@ -315,6 +315,18 @@ class Orchestrator:
                        f"already holding {existing.get('qty')} shares — duplicate position skipped")
             return state
 
+        # Cash-only guard: Alpaca is a margin venue, but the real IBKR account
+        # will be cash-only — never buy with money we don't have, never short.
+        allowed, guard_reason = self._alpaca.check_cash_guard(
+            debate.consensus_direction, risk.adjusted_quantity,
+            signal.limit_price, signal.symbol,
+        )
+        if not allowed:
+            log.info("orchestrator.cash_guard_blocked",
+                     symbol=signal.symbol, reason=guard_reason)
+            self._emit(signal.symbol, "execute", "blocked", guard_reason)
+            return state
+
         try:
             direction = debate.consensus_direction
             order = self._alpaca.place_order(

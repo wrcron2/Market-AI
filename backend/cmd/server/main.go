@@ -721,6 +721,14 @@ func main() {
 			http.Error(w, "order not found", http.StatusNotFound)
 			return
 		}
+		// Cash-only guard: retry is an execution path too — same discipline
+		// as the Green Light gate (never buy with money we don't have).
+		if reason, blocked := greenlight.CashGuardBlocks(alpacaProxy, order); blocked {
+			logger.Warn("retry blocked by cash-only guard",
+				zap.String("signal_id", order.ID), zap.String("reason", reason))
+			http.Error(w, reason, http.StatusConflict)
+			return
+		}
 		if err := database.ResetToRetry(req.SignalID); err != nil {
 			http.Error(w, "reset failed", http.StatusInternalServerError)
 			return

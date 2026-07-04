@@ -85,6 +85,55 @@ class AlpacaExecutor:
         resp.raise_for_status()
         return resp.json()
 
+    # ── Cash-only discipline ───────────────────────────────────────────────────
+    # Alpaca has no cash accounts — every account is margin. The real IBKR
+    # account will be CASH ONLY, so we enforce cash-account behavior in
+    # software: never spend more than settled cash, never short. Negative
+    # cash (existing margin debt) means zero available — buys stay blocked
+    # until the balance is positive again.
+
+    @staticmethod
+    def cash_only_enabled() -> bool:
+        return os.getenv("CASH_ONLY_MODE", "true").lower() not in ("false", "0", "off")
+
+    def available_cash(self) -> float:
+        """Settled cash we actually own. Never consults buying_power (margin)."""
+        cash = float(self.get_account().get("cash", 0) or 0)
+        return max(0.0, cash)
+
+    def check_cash_guard(
+        self, direction: str, quantity: float, limit_price: float, symbol: str = ""
+    ) -> tuple[bool, str]:
+        """
+        Returns (allowed, reason). Blocks any order that would borrow:
+        - SHORT is borrowing by definition → always blocked in cash-only mode.
+        - BUY/COVER must cost no more than available settled cash. Cost uses
+          the limit price, falling back to the latest trade; if no price can
+          be determined the buy is blocked (fail closed), never waved through.
+        Sells of held stock are always allowed — they raise cash.
+        """
+        if not self.cash_only_enabled():
+            return True, "cash-only mode disabled"
+
+        d = direction.upper()
+        if d == "SHORT":
+            return False, "cash-only guard: short selling is borrowing — blocked"
+        if d not in ("BUY", "COVER"):
+            return True, "sell — raises cash"
+
+        price = limit_price if limit_price > 0 else (self.get_latest_price(symbol) or 0)
+        if price <= 0:
+            return False, f"cash-only guard: no price available for {symbol} — cannot verify cost, blocked"
+
+        cost = quantity * price
+        cash = self.available_cash()
+        if cost > cash:
+            return False, (
+                f"cash-only guard: need ${cost:,.2f} for {int(quantity)} {symbol} "
+                f"@ ${price:,.2f}, settled cash available ${cash:,.2f} — no borrowing"
+            )
+        return True, f"cash ok (${cost:,.2f} of ${cash:,.2f})"
+
     # ── Market clock ───────────────────────────────────────────────────────────
 
     def is_market_open(self) -> bool:
@@ -125,6 +174,12 @@ class AlpacaExecutor:
         Place an order on the Alpaca paper account and return the order object.
         BUY/COVER → side=buy.  SELL/SHORT → side=sell.
         """
+        allowed, reason = self.check_cash_guard(direction, quantity, limit_price, symbol)
+        if not allowed:
+            log.warning("alpaca.cash_guard_blocked", signal_id=signal_id,
+                        symbol=symbol, direction=direction, reason=reason)
+            raise RuntimeError(reason)
+
         side       = _DIRECTION_TO_SIDE.get(direction.upper(), "buy")
         order_type = "limit" if limit_price > 0 else "market"
 

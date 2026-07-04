@@ -4,8 +4,11 @@ package greenlight
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -16,6 +19,51 @@ import (
 	"github.com/marketflow/backend/internal/mode"
 	"github.com/marketflow/backend/internal/ws"
 )
+
+// cashOnlyEnabled reports whether cash-account discipline is enforced.
+// Default ON — Alpaca is a margin venue, but the production IBKR account
+// will be cash-only, so paper must behave the same way.
+func cashOnlyEnabled() bool {
+	v := strings.ToLower(os.Getenv("CASH_ONLY_MODE"))
+	return v != "false" && v != "0" && v != "off"
+}
+
+// CashGuardBlocks returns (reason, true) when executing this order would
+// require borrowing. Sells pass — they raise cash. Buys must fit inside
+// settled cash (negative cash counts as zero). Orders without a usable
+// price are blocked, never waved through (fail closed). Exported so every
+// execution path (Green Light approve, order retry) applies the same rule.
+func CashGuardBlocks(a *alpaca.Handler, order *db.StagedOrder) (string, bool) {
+	if !cashOnlyEnabled() {
+		return "", false
+	}
+	dir := strings.ToUpper(order.Direction)
+	if dir == "SHORT" {
+		return "cash-only guard: short selling is borrowing — blocked", true
+	}
+	if dir != "BUY" && dir != "COVER" {
+		return "", false // SELL raises cash
+	}
+	if order.LimitPrice <= 0 {
+		return "cash-only guard: order has no price — cannot verify cost, blocked", true
+	}
+	cash, err := a.SettledCash()
+	if err != nil {
+		return "cash-only guard: cannot read account cash (" + err.Error() + ") — blocked", true
+	}
+	cost := order.Quantity * order.LimitPrice
+	if cost > cash {
+		return fmt.Sprintf(
+			"cash-only guard: need $%.2f for %.0f %s @ $%.2f, settled cash available $%.2f — no borrowing",
+			cost, order.Quantity, order.Symbol, order.LimitPrice, cash,
+		), true
+	}
+	return "", false
+}
+
+func (h *Handler) cashGuardBlocks(order *db.StagedOrder) (string, bool) {
+	return CashGuardBlocks(h.alpaca, order)
+}
 
 // Handler handles Green Light HTTP requests from the React dashboard.
 type Handler struct {
@@ -84,6 +132,20 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 	order, err := h.db.GetOrder(req.SignalID)
 	if err != nil {
 		http.Error(w, "order not found", http.StatusNotFound)
+		return
+	}
+
+	// Cash-only guard: Alpaca accounts are always margin, but MarketFlow
+	// must behave like the future IBKR CASH account — never buy with money
+	// we don't have, never short. Runs BEFORE any state transition so a
+	// blocked order simply stays PENDING with a clear reason for the trader.
+	if reason, blocked := h.cashGuardBlocks(order); blocked {
+		h.log.Warn("green light blocked by cash-only guard",
+			zap.String("signal_id", order.ID),
+			zap.String("symbol", order.Symbol),
+			zap.String("reason", reason),
+		)
+		http.Error(w, reason, http.StatusConflict)
 		return
 	}
 

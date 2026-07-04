@@ -33,6 +33,40 @@ func NewHandler() *Handler {
 	}
 }
 
+// SettledCash returns the account's settled cash balance, floored at zero.
+// Deliberately ignores buying_power — that field includes margin, and
+// MarketFlow runs Alpaca in cash-only discipline (the real IBKR account
+// will be a cash account; we never borrow).
+func (h *Handler) SettledCash() (float64, error) {
+	if h.apiKey == "" || h.secretKey == "" {
+		return 0, fmt.Errorf("alpaca credentials not configured")
+	}
+	req, err := http.NewRequest(http.MethodGet, h.baseURL+"/v2/account", nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("APCA-API-KEY-ID", h.apiKey)
+	req.Header.Set("APCA-API-SECRET-KEY", h.secretKey)
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("alpaca unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("alpaca account error %d", resp.StatusCode)
+	}
+	var acct struct {
+		Cash float64 `json:"cash,string"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&acct); err != nil {
+		return 0, fmt.Errorf("parse account: %w", err)
+	}
+	if acct.Cash < 0 {
+		return 0, nil
+	}
+	return acct.Cash, nil
+}
+
 // Account proxies GET /api/alpaca/account → Alpaca /v2/account.
 func (h *Handler) Account(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
