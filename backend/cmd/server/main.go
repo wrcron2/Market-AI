@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"syscall"
@@ -67,7 +68,8 @@ func main() {
 	glHandler    := greenlight.NewHandler(database, hub, modeManager, logger)
 	alpacaProxy  := alpaca.NewHandler()
 
-	projectRoot := getEnv("PROJECT_ROOT", ".")
+	projectRoot := resolveProjectRoot(getEnv("PROJECT_ROOT", ""))
+	logger.Info("pipeline: resolved project root", zap.String("path", projectRoot))
 	pipelineHandler := pipeline.New(projectRoot, database, logger)
 
 	// ─── Auto-Execute toggle (in-memory, resets to false on restart) ──────────
@@ -1029,6 +1031,42 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// resolveProjectRoot returns the repo root the Scout/Research pipeline should
+// read prompts from and write logs to. If explicit is set (PROJECT_ROOT env
+// var), it's used as-is. Otherwise this walks up from the working directory
+// looking for the marker file agents/scout-agent-prompt.md, so the pipeline
+// works whether the server is launched from the repo root or from backend/
+// (both `make backend` and start.sh do `cd backend && go run cmd/server/main.go`,
+// which left the old "." default pointing one directory too deep).
+func resolveProjectRoot(explicit string) string {
+	if explicit != "" {
+		abs, err := filepath.Abs(explicit)
+		if err == nil {
+			return abs
+		}
+		return explicit
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	for {
+		if _, statErr := os.Stat(filepath.Join(dir, "agents", "scout-agent-prompt.md")); statErr == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	// Marker not found anywhere up the tree — fall back to cwd (old behavior).
+	cwd, _ := os.Getwd()
+	return cwd
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

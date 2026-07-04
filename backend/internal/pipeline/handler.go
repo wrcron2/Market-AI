@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -230,11 +229,13 @@ func (h *Handler) runAgent(name, promptPath, model string, onDone func()) {
 		return
 	}
 
-	cliModel := mapModelToCLI(model)
-	args := []string{"-p", string(promptBytes)}
-	if cliModel != "" {
-		args = append([]string{"--model", cliModel}, args...)
+	cliModel, ok := mapModelToCLI(model)
+	if !ok {
+		h.logger.Error("pipeline: unknown model", zap.String("agent", name), zap.String("model", model))
+		fmt.Fprintf(f, "=== %s Agent FAILED: unknown model %q (expected one of: claude-sonnet, claude-opus, claude-fable) ===\n", name, model)
+		return
 	}
+	args := []string{"--model", cliModel, "-p", string(promptBytes)}
 	cmd := exec.Command(claudePath, args...)
 	cmd.Dir = h.projectRoot
 	cmd.Stdout = f
@@ -250,20 +251,24 @@ func (h *Handler) runAgent(name, promptPath, model string, onDone func()) {
 	}
 }
 
+// cliModelMap maps the Pipeline UI's model dropdown values to Claude Code
+// CLI --model aliases. The Scout/Research agents run as `claude -p` with
+// full tool access (gh CLI, Notion/Supabase MCP) — only Claude Code CLI's
+// own aliases ('sonnet', 'opus', 'fable', ...) are valid here. Bare model
+// name prefixes like "claude-opus" are NOT accepted by the CLI (verified:
+// only the short alias or a fully-versioned model ID works), so every
+// dropdown value must have an explicit, tested mapping — no passthrough.
 var cliModelMap = map[string]string{
-	"claude-sonnet": "claude-sonnet-4-6",
+	"claude-sonnet": "sonnet",
+	"claude-opus":   "opus",
+	"claude-fable":  "fable",
 }
 
-// mapModelToCLI returns the Claude Code CLI model ID for known Claude models.
-// Non-Claude models (Ollama) return "" — the CLI uses its default.
-func mapModelToCLI(uiModel string) string {
-	if m, ok := cliModelMap[uiModel]; ok {
-		return m
-	}
-	if strings.HasPrefix(uiModel, "claude") {
-		return uiModel
-	}
-	return ""
+// mapModelToCLI returns the Claude Code CLI --model alias for a known
+// Pipeline UI model value, and false if the value has no valid mapping.
+func mapModelToCLI(uiModel string) (string, bool) {
+	m, ok := cliModelMap[uiModel]
+	return m, ok
 }
 
 func tailFile(path string, n int) []string {

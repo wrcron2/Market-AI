@@ -28,12 +28,16 @@ interface PipelineStatus {
   research: AgentStatus
 }
 
-type AgentModel = 'claude-sonnet' | 'deepseek-r1' | 'qwen3'
+// The Scout/Research agents run as `claude -p` subprocesses with full tool
+// access (gh CLI, Notion/Supabase MCP) — Claude Code CLI can only select
+// among its own models, so unlike the Ask AI panel this list can't include
+// Groq-hosted models (DeepSeek R1 / Qwen3): the CLI has no route to Groq.
+type AgentModel = 'claude-sonnet' | 'claude-opus' | 'claude-fable'
 
 const AGENT_MODELS: { value: AgentModel; label: string }[] = [
   { value: 'claude-sonnet', label: 'Claude Sonnet' },
-  { value: 'deepseek-r1', label: 'DeepSeek R1 (Groq)' },
-  { value: 'qwen3', label: 'Qwen3 (Groq)' },
+  { value: 'claude-opus', label: 'Claude Opus' },
+  { value: 'claude-fable', label: 'Claude Fable' },
 ]
 
 type RepoFilter = 'all' | 'new' | 'good' | 'rejected' | 'researched'
