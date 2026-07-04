@@ -713,6 +713,8 @@ func main() {
 	mux.HandleFunc("/api/pipeline/run/scout",      pipelineHandler.RunScout)
 	mux.HandleFunc("/api/pipeline/run/research",   pipelineHandler.RunResearch)
 	mux.HandleFunc("/api/pipeline/logs",           pipelineHandler.Logs)
+	mux.HandleFunc("/api/pipeline/logs/clear",     pipelineHandler.ClearLogs)
+	mux.HandleFunc("/api/pipeline/report/{id}",    pipelineHandler.Report)
 
 	// ─── Internal broadcast (Python brain → dashboard via WebSocket) ──────────
 	// Only the brain calls this. No CORS check needed (same host).

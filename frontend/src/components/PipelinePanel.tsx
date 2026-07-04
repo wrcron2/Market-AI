@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Play, Terminal, ExternalLink, Star, Database } from 'lucide-react'
+import { RefreshCw, Play, Terminal, ExternalLink, Star, Database, Trash2, FileText, X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 
 interface RepoRow {
   id: number
@@ -15,6 +16,7 @@ interface RepoRow {
   rejected_reason: string | null
   research_notion_url: string | null
   researched_at: string | null
+  has_report?: boolean
 }
 
 interface AgentStatus {
@@ -28,16 +30,22 @@ interface PipelineStatus {
   research: AgentStatus
 }
 
-// The Scout/Research agents run as `claude -p` subprocesses with full tool
-// access (gh CLI, Notion/Supabase MCP) — Claude Code CLI can only select
-// among its own models, so unlike the Ask AI panel this list can't include
-// Groq-hosted models (DeepSeek R1 / Qwen3): the CLI has no route to Groq.
-type AgentModel = 'claude-sonnet' | 'claude-opus' | 'claude-fable'
+// The Scout/Research agents run natively in the Go backend using the same
+// LLM routing as the Ask AI panel — so the full model list is available:
+// Anthropic API, Groq cloud, and local Ollama models on the host.
+type AgentModel =
+  | 'claude-sonnet'
+  | 'deepseek-r1'
+  | 'qwen3'
+  | 'deepseek-r1-local'
+  | 'qwen3-local'
 
 const AGENT_MODELS: { value: AgentModel; label: string }[] = [
-  { value: 'claude-sonnet', label: 'Claude Sonnet' },
-  { value: 'claude-opus', label: 'Claude Opus' },
-  { value: 'claude-fable', label: 'Claude Fable' },
+  { value: 'claude-sonnet',     label: 'Claude Sonnet (API)' },
+  { value: 'deepseek-r1',       label: 'DeepSeek R1 (Groq cloud)' },
+  { value: 'qwen3',             label: 'Qwen3 (Groq cloud)' },
+  { value: 'deepseek-r1-local', label: 'DeepSeek R1 7B (Ollama · local)' },
+  { value: 'qwen3-local',       label: 'Qwen3 4B (Ollama · local)' },
 ]
 
 type RepoFilter = 'all' | 'new' | 'good' | 'rejected' | 'researched'
@@ -80,6 +88,8 @@ export function PipelinePanel() {
   const [researchLoading, setResearchLoading] = useState(false)
   const [scoutModel, setScoutModel] = useState<AgentModel>('claude-sonnet')
   const [researchModel, setResearchModel] = useState<AgentModel>('claude-sonnet')
+  const [report, setReport] = useState<{ fullName: string; markdown: string } | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
 
   const loadRepos = useCallback(async () => {
@@ -107,6 +117,27 @@ export function PipelinePanel() {
       const data = await res.json()
       setLogs(data.lines ?? [])
     } catch { /* keep existing */ }
+  }, [])
+
+  const clearLogs = useCallback(async () => {
+    try {
+      await fetch('/api/pipeline/logs/clear', { method: 'POST' })
+      setLogs([])
+    } catch { /* keep existing */ }
+  }, [])
+
+  const openReport = useCallback(async (repo: RepoRow) => {
+    setReportLoading(true)
+    setReport({ fullName: repo.full_name, markdown: '' })
+    try {
+      const res = await fetch(`/api/pipeline/report/${repo.id}`)
+      const data = await res.json()
+      setReport({ fullName: data.full_name ?? repo.full_name, markdown: data.report ?? '' })
+    } catch {
+      setReport({ fullName: repo.full_name, markdown: '⚠️ Failed to load report.' })
+    } finally {
+      setReportLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -228,7 +259,7 @@ export function PipelinePanel() {
                 github_repo_scout
               </div>
             </div>
-            <div style={{ fontSize: 11, color: '#475569' }}>Supabase · status lifecycle</div>
+            <div style={{ fontSize: 11, color: '#475569' }}>SQL (SQLite) · status lifecycle</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {[
                 { label: 'new',        count: counts.new,        color: '#60a5fa' },
@@ -269,9 +300,9 @@ export function PipelinePanel() {
             flexDirection: 'column', alignItems: 'center', gap: 6, justifyContent: 'center',
           }}>
             <span style={{ fontSize: 24 }}>📝</span>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>Notion</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>Reports</div>
             <div style={{ fontSize: 11, color: '#475569', textAlign: 'center' }}>
-              research pages<br/>
+              dashboard + Notion<br/>
               <span style={{ color: '#a855f7', fontWeight: 600 }}>{counts.researched} written</span>
             </div>
           </div>
@@ -331,7 +362,7 @@ export function PipelinePanel() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #1e293b' }}>
-                {['Repository', 'Stars', 'Language', 'Status', 'First Seen', 'Notion'].map(col => (
+                {['Repository', 'Stars', 'Language', 'Status', 'First Seen', 'Report'].map(col => (
                   <th key={col} style={{
                     padding: '10px 16px', textAlign: 'left',
                     fontSize: 11, fontWeight: 600, color: '#64748b',
@@ -410,21 +441,35 @@ export function PipelinePanel() {
                       {fmtDate(repo.first_seen_at)}
                     </td>
                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
-                      {repo.research_notion_url ? (
-                        <a
-                          href={repo.research_notion_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            color: '#a855f7', fontSize: 12, textDecoration: 'none',
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                          }}
-                        >
-                          Open <ExternalLink size={10} />
-                        </a>
-                      ) : (
-                        <span style={{ color: '#334155', fontSize: 12 }}>—</span>
-                      )}
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                        {repo.has_report ? (
+                          <button
+                            onClick={() => openReport(repo)}
+                            style={{
+                              background: '#3b0764', color: '#a855f7', border: '1px solid #a855f740',
+                              borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600,
+                              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}
+                          >
+                            <FileText size={11} /> View
+                          </button>
+                        ) : (
+                          <span style={{ color: '#334155', fontSize: 12 }}>—</span>
+                        )}
+                        {repo.research_notion_url && (
+                          <a
+                            href={repo.research_notion_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{
+                              color: '#a855f7', fontSize: 12, textDecoration: 'none',
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}
+                          >
+                            Notion <ExternalLink size={10} />
+                          </a>
+                        )}
+                      </span>
                     </td>
                   </tr>
                 )
@@ -443,7 +488,7 @@ export function PipelinePanel() {
         <RunControl
           icon="🔍"
           title="Scout Agent"
-          description="Searches GitHub for trading/quant repos, dedupes, and classifies them in Supabase."
+          description="Searches GitHub for trading/quant repos, dedupes against the github_repo_scout SQL table, and classifies each new repo as good or rejected using the selected model."
           running={scout?.running ?? false}
           loading={scoutLoading}
           onRun={runScout}
@@ -459,7 +504,7 @@ export function PipelinePanel() {
         <RunControl
           icon="🧠"
           title="Research Agent"
-          description={<>Picks up <em style={{ color: '#22c55e' }}>good</em> repos, deep-analyses them, writes a Notion page, marks them <em style={{ color: '#a855f7' }}>researched</em>.</>}
+          description={<>Picks up <em style={{ color: '#22c55e' }}>good</em> repos, deep-analyses their README + metadata, saves a report you can open right here (and to Notion when configured), then marks them <em style={{ color: '#a855f7' }}>researched</em>.</>}
           running={research?.running ?? false}
           loading={researchLoading}
           onRun={runResearch}
@@ -486,13 +531,22 @@ export function PipelinePanel() {
               logs/scout.log — last 50 lines
             </span>
           </div>
-          <button onClick={loadLogs} style={{
-            background: 'transparent', border: '1px solid #1e293b',
-            color: '#475569', borderRadius: 4, padding: '2px 8px',
-            cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3,
-          }}>
-            <RefreshCw size={10} /> Refresh
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={loadLogs} style={{
+              background: 'transparent', border: '1px solid #1e293b',
+              color: '#475569', borderRadius: 4, padding: '2px 8px',
+              cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3,
+            }}>
+              <RefreshCw size={10} /> Refresh
+            </button>
+            <button onClick={clearLogs} style={{
+              background: 'transparent', border: '1px solid #1e293b',
+              color: '#475569', borderRadius: 4, padding: '2px 8px',
+              cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3,
+            }}>
+              <Trash2 size={10} /> Clear
+            </button>
+          </div>
         </div>
         <pre ref={logRef} style={{
           margin: 0, padding: '14px 16px', fontSize: 11, lineHeight: 1.7,
@@ -516,6 +570,61 @@ export function PipelinePanel() {
           })}
         </pre>
       </div>
+
+      {/* ── Research Report Modal ────────────────────────────────────────────── */}
+      {report && (
+        <div
+          onClick={() => setReport(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 100,
+            background: 'rgba(0,0,0,0.65)', display: 'flex',
+            alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: '#0d1117', border: '1px solid #334155', borderRadius: 14,
+              width: 'min(760px, 100%)', maxHeight: '85vh', display: 'flex',
+              flexDirection: 'column', overflow: 'hidden',
+            }}
+          >
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 20px', borderBottom: '1px solid #1e293b',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FileText size={15} style={{ color: '#a855f7' }} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>
+                  {report.fullName}
+                </span>
+              </div>
+              <button
+                onClick={() => setReport(null)}
+                style={{
+                  background: 'transparent', border: '1px solid #334155', color: '#94a3b8',
+                  borderRadius: 6, padding: '4px 8px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center',
+                }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+            <div className="prose-mf" style={{
+              padding: '18px 24px', overflowY: 'auto', color: '#cbd5e1',
+              fontSize: 13, lineHeight: 1.7,
+            }}>
+              {reportLoading ? (
+                <span style={{ color: '#475569' }}>Loading report…</span>
+              ) : report.markdown ? (
+                <ReactMarkdown>{report.markdown}</ReactMarkdown>
+              ) : (
+                <span style={{ color: '#475569' }}>No report stored for this repo yet.</span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

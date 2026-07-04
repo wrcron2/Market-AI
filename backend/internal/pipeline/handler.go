@@ -1,20 +1,31 @@
 // Package pipeline exposes the HTTP API for the Repo Scout & Research pipeline.
+//
+// Both agents run natively inside the backend — GitHub REST API for search,
+// the shared llm package (Anthropic / Groq / local Ollama, same routing as
+// Ask AI) for classification and analysis, and the local SQLite database for
+// storage. No external CLI is required, so the pipeline works identically on
+// a laptop and inside the Docker container on Oracle. Notion export is
+// optional: set NOTION_API_KEY + NOTION_PARENT_PAGE_ID to enable it.
 package pipeline
 
 import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
 
 	"github.com/marketflow/backend/internal/db"
+	"github.com/marketflow/backend/internal/llm"
 )
 
 // Handler holds shared state for all pipeline endpoints.
@@ -28,24 +39,8 @@ type Handler struct {
 	projectRoot string
 	db          *db.DB
 	logger      *zap.Logger
-}
-
-// RepoRow mirrors the github_repo_scout Supabase table.
-type RepoRow struct {
-	ID               int64    `json:"id"`
-	FullName         string   `json:"full_name"`
-	URL              string   `json:"url"`
-	Description      *string  `json:"description"`
-	Stars            int      `json:"stars"`
-	Language         *string  `json:"language"`
-	Topics           []string `json:"topics"`
-	LastCommitAt     *string  `json:"last_commit_at"`
-	FirstSeenAt      string   `json:"first_seen_at"`
-	LastCheckedAt    string   `json:"last_checked_at"`
-	Status           string   `json:"status"`
-	RejectedReason   *string  `json:"rejected_reason"`
-	ResearchNotionURL *string `json:"research_notion_url"`
-	ResearchedAt     *string  `json:"researched_at"`
+	llm         *llm.Client
+	http        *http.Client
 }
 
 // New creates a Handler using the existing SQLite DB — no external services required.
@@ -54,6 +49,8 @@ func New(projectRoot string, database *db.DB, logger *zap.Logger) *Handler {
 		projectRoot: projectRoot,
 		db:          database,
 		logger:      logger,
+		llm:         llm.New(),
+		http:        &http.Client{Timeout: 30 * time.Second},
 	}
 }
 
@@ -102,7 +99,7 @@ func (h *Handler) Status(w http.ResponseWriter, r *http.Request) {
 		"scout": map[string]any{
 			"running":  sr,
 			"last_run": toPtr(lsr),
-			"schedule": "every 6h",
+			"schedule": "on demand",
 		},
 		"research": map[string]any{
 			"running":  rr,
@@ -131,13 +128,16 @@ func (h *Handler) RunScout(w http.ResponseWriter, r *http.Request) {
 	h.scoutRunning = true
 	h.mu.Unlock()
 
-	go h.runAgent("Scout", filepath.Join(h.projectRoot, "agents", "scout-agent-prompt.md"), req.Model, func() {
-		h.mu.Lock()
-		h.scoutRunning = false
-		now := time.Now()
-		h.lastScoutRun = &now
-		h.mu.Unlock()
-	})
+	go func() {
+		defer func() {
+			h.mu.Lock()
+			h.scoutRunning = false
+			now := time.Now()
+			h.lastScoutRun = &now
+			h.mu.Unlock()
+		}()
+		h.runScout(req.Model)
+	}()
 
 	writeJSON(w, map[string]any{"started": true, "model": req.Model})
 }
@@ -162,13 +162,16 @@ func (h *Handler) RunResearch(w http.ResponseWriter, r *http.Request) {
 	h.researchRunning = true
 	h.mu.Unlock()
 
-	go h.runAgent("Research", filepath.Join(h.projectRoot, "agents", "research-agent-prompt.md"), req.Model, func() {
-		h.mu.Lock()
-		h.researchRunning = false
-		now := time.Now()
-		h.lastResearchRun = &now
-		h.mu.Unlock()
-	})
+	go func() {
+		defer func() {
+			h.mu.Lock()
+			h.researchRunning = false
+			now := time.Now()
+			h.lastResearchRun = &now
+			h.mu.Unlock()
+		}()
+		h.runResearch(req.Model)
+	}()
 
 	writeJSON(w, map[string]any{"started": true, "model": req.Model})
 }
@@ -184,91 +187,511 @@ func (h *Handler) Logs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"lines": lines})
 }
 
-// runAgent reads the prompt file at promptPath and runs `claude -p <prompt>` as a subprocess,
-// appending output to logs/scout.log. onDone is called when the process exits.
-func (h *Handler) runAgent(name, promptPath, model string, onDone func()) {
-	defer onDone()
+// ClearLogs handles POST /api/pipeline/logs/clear — truncates logs/scout.log.
+func (h *Handler) ClearLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	logFile := filepath.Join(h.projectRoot, "logs", "scout.log")
+	if err := os.Truncate(logFile, 0); err != nil && !os.IsNotExist(err) {
+		writeJSON(w, map[string]any{"cleared": false, "error": err.Error()})
+		return
+	}
+	writeJSON(w, map[string]any{"cleared": true})
+}
 
+// Report handles GET /api/pipeline/report/{id} — returns the stored markdown
+// research report for a repo.
+func (h *Handler) Report(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "invalid repo id", http.StatusBadRequest)
+		return
+	}
+	fullName, report, err := h.db.GetResearchReport(id)
+	if err != nil {
+		http.Error(w, "repo not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{"full_name": fullName, "report": report})
+}
+
+// ─── Log helper ───────────────────────────────────────────────────────────────
+
+// agentLog appends timestamped output to logs/scout.log (the file the
+// dashboard log panel tails).
+type agentLog struct {
+	f *os.File
+}
+
+func (h *Handler) openLog() *agentLog {
 	logFile := filepath.Join(h.projectRoot, "logs", "scout.log")
 	_ = os.MkdirAll(filepath.Dir(logFile), 0755)
-
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		h.logger.Error("pipeline: cannot open log file", zap.String("agent", name), zap.Error(err))
+		h.logger.Error("pipeline: cannot open log file", zap.Error(err))
+		return &agentLog{}
+	}
+	return &agentLog{f: f}
+}
+
+func (l *agentLog) printf(format string, args ...any) {
+	if l.f != nil {
+		fmt.Fprintf(l.f, format+"\n", args...)
+	}
+}
+
+func (l *agentLog) close() {
+	if l.f != nil {
+		l.f.Close()
+	}
+}
+
+// ─── Scout agent ──────────────────────────────────────────────────────────────
+
+var scoutQueries = []string{
+	"ai trading agent",
+	"multi-agent trading framework",
+	"quantitative trading backtesting framework",
+	"llm trading signals",
+	"interactive brokers trading bot",
+	"algorithmic trading strategy",
+}
+
+var scoutLanguages = map[string]bool{
+	"Python": true, "Go": true, "TypeScript": true,
+	"JavaScript": true, "Rust": true, "Jupyter Notebook": true,
+}
+
+type ghRepo struct {
+	FullName    string   `json:"full_name"`
+	HTMLURL     string   `json:"html_url"`
+	Description string   `json:"description"`
+	Stars       int      `json:"stargazers_count"`
+	Language    string   `json:"language"`
+	Topics      []string `json:"topics"`
+	PushedAt    string   `json:"pushed_at"`
+}
+
+const scoutClassifySystem = `You are the Scout Agent for MarketFlow AI, an automated trading system
+(React dashboard, Go backend, Python LangGraph brain, Alpaca execution, momentum breakout +
+mean reversion strategies). You will receive a JSON list of GitHub repositories related to
+trading/quant/AI. Classify each repo:
+
+- "good"     — clearly relevant to MarketFlow AI's stack: multi-agent trading, LLM-driven
+               signal generation, LangGraph-style orchestration, IBKR/Alpaca execution,
+               or backtesting frameworks.
+- "rejected" — trading/finance adjacent but not useful (generic frameworks with no finance
+               tie, price-display apps, abandoned tutorials, crypto-only pump bots, etc.).
+               Give a one-line reason.
+
+Respond with ONLY a JSON array, no prose, one object per input repo:
+[{"full_name": "...", "status": "good"|"rejected", "reason": "..."}]`
+
+func (h *Handler) runScout(model string) {
+	log := h.openLog()
+	defer log.close()
+
+	log.printf("\n=== Scout Agent — run triggered at %s (model: %s) ===", time.Now().Format(time.RFC3339), model)
+
+	if err := validateModel(model); err != nil {
+		log.printf("=== Scout Agent FAILED: %v ===", err)
 		return
 	}
-	defer f.Close()
 
-	fmt.Fprintf(f, "\n=== %s Agent — manual run triggered at %s (model: %s) ===\n", name, time.Now().Format(time.RFC3339), model)
+	// 1. Search GitHub.
+	cutoff := time.Now().AddDate(-1, 0, 0).Format("2006-01-02")
+	seen := map[string]*ghRepo{}
+	for _, q := range scoutQueries {
+		repos, err := h.searchGitHub(q, cutoff)
+		if err != nil {
+			log.printf("WARN: GitHub search %q failed: %v", q, err)
+			continue
+		}
+		fresh := 0
+		for i := range repos {
+			r := &repos[i]
+			if seen[r.FullName] == nil && scoutLanguages[r.Language] {
+				seen[r.FullName] = r
+				fresh++
+			}
+		}
+		log.printf("Searched %q — %d results, %d candidates after filters", q, len(repos), fresh)
+		time.Sleep(2 * time.Second) // stay under GitHub's unauthenticated search rate limit
+	}
 
-	promptBytes, err := os.ReadFile(promptPath)
-	if err != nil {
-		h.logger.Error("pipeline: cannot read prompt file", zap.String("path", promptPath), zap.Error(err))
-		fmt.Fprintf(f, "ERROR: cannot read prompt file %s: %v\n", promptPath, err)
+	// 2. Dedupe against the database.
+	var newRepos []*ghRepo
+	known := 0
+	for _, r := range seen {
+		if _, found := h.db.GetRepoStatus(r.FullName); found {
+			_ = h.db.TouchRepo(r.FullName, r.Stars)
+			known++
+			continue
+		}
+		newRepos = append(newRepos, r)
+	}
+	log.printf("Checked %d repos: %d already known (stars refreshed), %d new", len(seen), known, len(newRepos))
+
+	if len(newRepos) == 0 {
+		log.printf("=== Scout Agent complete — nothing new to classify ===")
 		return
 	}
 
-	claudePath, lookErr := exec.LookPath("claude")
-	if lookErr != nil {
-		// LookPath only searches PATH; fall back to common install locations when the
-		// server is launched outside a full user shell (e.g. launchd, systemd).
-		for _, candidate := range []string{
-			filepath.Join(os.Getenv("HOME"), ".local", "bin", "claude"),
-			"/usr/local/bin/claude",
-			"/opt/homebrew/bin/claude",
-		} {
-			if _, statErr := os.Stat(candidate); statErr == nil {
-				claudePath = candidate
-				break
+	// 3. Classify new repos with the selected model, in batches.
+	good, rejected, unclassified := 0, 0, 0
+	for start := 0; start < len(newRepos); start += 8 {
+		end := start + 8
+		if end > len(newRepos) {
+			end = len(newRepos)
+		}
+		batch := newRepos[start:end]
+
+		verdicts, provider, err := h.classifyBatch(model, batch)
+		if err != nil {
+			log.printf("WARN: classification batch failed (%v) — storing %d repos as 'new' for a later re-run", err, len(batch))
+			for _, r := range batch {
+				_ = h.db.InsertScoutRepo(toScoutRepo(r), "new", "")
+				unclassified++
+			}
+			continue
+		}
+		log.printf("Classified batch of %d via %s", len(batch), provider)
+
+		for _, r := range batch {
+			v, ok := verdicts[r.FullName]
+			status, reason := "new", ""
+			if ok && (v.Status == "good" || v.Status == "rejected") {
+				status, reason = v.Status, v.Reason
+			}
+			if err := h.db.InsertScoutRepo(toScoutRepo(r), status, reason); err != nil {
+				log.printf("WARN: insert %s failed: %v", r.FullName, err)
+				continue
+			}
+			switch status {
+			case "good":
+				good++
+				log.printf("  + good     %s (stars %d)", r.FullName, r.Stars)
+			case "rejected":
+				rejected++
+				log.printf("  - rejected %s — %s", r.FullName, reason)
+			default:
+				unclassified++
+				log.printf("  ? new      %s (model gave no verdict)", r.FullName)
 			}
 		}
 	}
-	if claudePath == "" {
-		h.logger.Error("pipeline: claude CLI not found", zap.String("agent", name))
-		fmt.Fprintf(f, "=== %s Agent FAILED: claude CLI not found in PATH or common locations ===\n", name)
-		return
-	}
 
-	cliModel, ok := mapModelToCLI(model)
-	if !ok {
-		h.logger.Error("pipeline: unknown model", zap.String("agent", name), zap.String("model", model))
-		fmt.Fprintf(f, "=== %s Agent FAILED: unknown model %q (expected one of: claude-sonnet, claude-opus, claude-fable) ===\n", name, model)
-		return
-	}
-	args := []string{"--model", cliModel, "-p", string(promptBytes)}
-	cmd := exec.Command(claudePath, args...)
-	cmd.Dir = h.projectRoot
-	cmd.Stdout = f
-	cmd.Stderr = f
+	log.printf("Summary: %d new repos — %d good, %d rejected, %d left as 'new'", len(newRepos), good, rejected, unclassified)
+	log.printf("=== Scout Agent complete ===")
+}
 
-	h.logger.Info("pipeline: starting agent", zap.String("agent", name), zap.String("model", model))
-	if err := cmd.Run(); err != nil {
-		h.logger.Error("pipeline: agent run failed", zap.String("agent", name), zap.Error(err))
-		fmt.Fprintf(f, "=== %s Agent FAILED: %v ===\n", name, err)
-	} else {
-		h.logger.Info("pipeline: agent completed", zap.String("agent", name))
-		fmt.Fprintf(f, "=== %s Agent complete ===\n", name)
+type verdict struct {
+	FullName string `json:"full_name"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason"`
+}
+
+func (h *Handler) classifyBatch(model string, batch []*ghRepo) (map[string]verdict, string, error) {
+	type item struct {
+		FullName    string   `json:"full_name"`
+		Description string   `json:"description"`
+		Stars       int      `json:"stars"`
+		Language    string   `json:"language"`
+		Topics      []string `json:"topics"`
+		LastPush    string   `json:"last_push"`
+	}
+	items := make([]item, 0, len(batch))
+	for _, r := range batch {
+		items = append(items, item{r.FullName, r.Description, r.Stars, r.Language, r.Topics, r.PushedAt})
+	}
+	payload, _ := json.MarshalIndent(items, "", "  ")
+
+	var lastErr error
+	var provider string
+	for attempt := 0; attempt < 2; attempt++ {
+		reply, prov, err := h.llm.Call(model, scoutClassifySystem, string(payload))
+		provider = prov
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		jsonStr, err := llm.ExtractJSONArray(reply)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		var verdicts []verdict
+		if err := json.Unmarshal([]byte(jsonStr), &verdicts); err != nil {
+			lastErr = fmt.Errorf("model returned invalid JSON: %w", err)
+			continue
+		}
+		out := make(map[string]verdict, len(verdicts))
+		for _, v := range verdicts {
+			out[v.FullName] = v
+		}
+		return out, provider, nil
+	}
+	return nil, provider, lastErr
+}
+
+func toScoutRepo(r *ghRepo) *db.ScoutRepo {
+	topics, _ := json.Marshal(r.Topics)
+	return &db.ScoutRepo{
+		FullName:    r.FullName,
+		URL:         r.HTMLURL,
+		Description: r.Description,
+		Stars:       r.Stars,
+		Language:    r.Language,
+		Topics:      string(topics),
+		LastCommit:  r.PushedAt,
 	}
 }
 
-// cliModelMap maps the Pipeline UI's model dropdown values to Claude Code
-// CLI --model aliases. The Scout/Research agents run as `claude -p` with
-// full tool access (gh CLI, Notion/Supabase MCP) — only Claude Code CLI's
-// own aliases ('sonnet', 'opus', 'fable', ...) are valid here. Bare model
-// name prefixes like "claude-opus" are NOT accepted by the CLI (verified:
-// only the short alias or a fully-versioned model ID works), so every
-// dropdown value must have an explicit, tested mapping — no passthrough.
-var cliModelMap = map[string]string{
-	"claude-sonnet": "sonnet",
-	"claude-opus":   "opus",
-	"claude-fable":  "fable",
+func (h *Handler) searchGitHub(query, pushedAfter string) ([]ghRepo, error) {
+	q := fmt.Sprintf("%s stars:>=100 pushed:>=%s", query, pushedAfter)
+	u := "https://api.github.com/search/repositories?q=" + url.QueryEscape(q) + "&sort=stars&order=desc&per_page=15"
+
+	req, _ := http.NewRequest("GET", u, nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+
+	resp, err := h.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("GitHub API %d: %.200s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Items []ghRepo `json:"items"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+	return result.Items, nil
 }
 
-// mapModelToCLI returns the Claude Code CLI --model alias for a known
-// Pipeline UI model value, and false if the value has no valid mapping.
-func mapModelToCLI(uiModel string) (string, bool) {
-	m, ok := cliModelMap[uiModel]
-	return m, ok
+// ─── Research agent ───────────────────────────────────────────────────────────
+
+const researchPerRun = 3
+
+const researchSystem = `You are the Research Agent for MarketFlow AI — an automated trading system with
+a React dashboard, Go backend, Python LangGraph AI brain, local Ollama + cloud LLM inference,
+Alpaca paper-trading execution, a human-in-the-loop Green Light approval gate, and two
+strategies (momentum breakout, mean reversion). Backtesting infrastructure is the current #1 priority.
+
+You will receive one GitHub repository's metadata and README. Write a concise research report
+in markdown with EXACTLY these sections:
+
+## Summary
+2-3 plain-language sentences: what problem the repo solves.
+
+## Architecture
+Agent structure, orchestration pattern, language/stack.
+
+## Execution model
+Does it auto-execute trades or support human-in-the-loop approval? (Critical for MarketFlow's
+Green Light Gate.) Broker/exchange integrations (IBKR, Alpaca, etc.).
+
+## LLM / model usage
+Local (Ollama) vs API models, if any.
+
+## Backtesting
+What backtesting support exists, if any.
+
+## Relevance to MarketFlow AI
+Name the specific phase or component it could inform or replace.
+
+## Recommendation
+One of: **Adopt pattern** / **Reference only** / **Not relevant** — with one sentence why.`
+
+func (h *Handler) runResearch(model string) {
+	log := h.openLog()
+	defer log.close()
+
+	log.printf("\n=== Research Agent — run triggered at %s (model: %s) ===", time.Now().Format(time.RFC3339), model)
+
+	if err := validateModel(model); err != nil {
+		log.printf("=== Research Agent FAILED: %v ===", err)
+		return
+	}
+
+	candidates, err := h.db.ListResearchCandidates(researchPerRun)
+	if err != nil {
+		log.printf("=== Research Agent FAILED: db error: %v ===", err)
+		return
+	}
+	if len(candidates) == 0 {
+		log.printf("No new repos to research (need status='good' with no report yet)")
+		log.printf("=== Research Agent complete ===")
+		return
+	}
+	log.printf("Found %d repo(s) to research (max %d per run)", len(candidates), researchPerRun)
+
+	notionReady := os.Getenv("NOTION_API_KEY") != "" && os.Getenv("NOTION_PARENT_PAGE_ID") != ""
+	if !notionReady {
+		log.printf("Notion export off (set NOTION_API_KEY + NOTION_PARENT_PAGE_ID to enable) — reports are saved to the dashboard")
+	}
+
+	done := 0
+	for _, repo := range candidates {
+		log.printf("Researching %s (stars %d)…", repo.FullName, repo.Stars)
+
+		readme, err := h.fetchReadme(repo.FullName)
+		if err != nil {
+			log.printf("WARN: could not fetch README for %s: %v (analyzing metadata only)", repo.FullName, err)
+		}
+		maxReadme := 6000
+		if model == llm.ModelClaudeSonnet {
+			maxReadme = 16000
+		}
+		if len(readme) > maxReadme {
+			readme = readme[:maxReadme] + "\n\n[README truncated]"
+		}
+
+		user := fmt.Sprintf("Repository: %s\nURL: %s\nStars: %d\nLanguage: %s\nTopics: %s\nDescription: %s\n\n--- README ---\n%s",
+			repo.FullName, repo.URL, repo.Stars, repo.Language, repo.Topics, repo.Description, readme)
+
+		reply, provider, err := h.llm.Call(model, researchSystem, user)
+		if err != nil {
+			log.printf("WARN: analysis of %s failed: %v — will retry next run", repo.FullName, err)
+			continue
+		}
+		report := llm.StripThink(reply)
+		header := fmt.Sprintf("# %s — ⭐ %d\n\n**Link:** %s\n**Researched:** %s\n**Model:** %s\n\n",
+			repo.FullName, repo.Stars, repo.URL, time.Now().Format("2006-01-02"), provider)
+		report = header + report
+
+		notionURL := ""
+		if notionReady {
+			notionURL, err = h.writeNotionPage(repo.FullName, report)
+			if err != nil {
+				log.printf("WARN: Notion write for %s failed: %v (report still saved to dashboard)", repo.FullName, err)
+			} else {
+				log.printf("  Notion page created: %s", notionURL)
+			}
+		}
+
+		if err := h.db.SaveResearchReport(repo.ID, report, notionURL); err != nil {
+			log.printf("WARN: saving report for %s failed: %v", repo.FullName, err)
+			continue
+		}
+		done++
+		log.printf("  + %s researched via %s — report available in the dashboard", repo.FullName, provider)
+	}
+
+	log.printf("Summary: %d/%d repos researched", done, len(candidates))
+	log.printf("=== Research Agent complete ===")
+}
+
+func (h *Handler) fetchReadme(fullName string) (string, error) {
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos/"+fullName+"/readme", nil)
+	req.Header.Set("Accept", "application/vnd.github.raw+json")
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := h.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("GitHub API %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	return string(body), err
+}
+
+// writeNotionPage creates a child page under NOTION_PARENT_PAGE_ID with the
+// report as paragraph blocks (Notion caps rich_text at 2000 chars per block).
+func (h *Handler) writeNotionPage(title, markdown string) (string, error) {
+	var children []map[string]any
+	for _, chunk := range chunkString(markdown, 1900) {
+		children = append(children, map[string]any{
+			"object": "block",
+			"type":   "paragraph",
+			"paragraph": map[string]any{
+				"rich_text": []map[string]any{
+					{"type": "text", "text": map[string]any{"content": chunk}},
+				},
+			},
+		})
+	}
+
+	payload := map[string]any{
+		"parent": map[string]any{"page_id": os.Getenv("NOTION_PARENT_PAGE_ID")},
+		"properties": map[string]any{
+			"title": map[string]any{
+				"title": []map[string]any{
+					{"type": "text", "text": map[string]any{"content": "OSS Research: " + title}},
+				},
+			},
+		},
+		"children": children,
+	}
+	b, _ := json.Marshal(payload)
+
+	req, _ := http.NewRequest("POST", "https://api.notion.com/v1/pages", strings.NewReader(string(b)))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+os.Getenv("NOTION_API_KEY"))
+	req.Header.Set("Notion-Version", "2022-06-28")
+
+	resp, err := h.http.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("Notion API %d: %.200s", resp.StatusCode, string(body))
+	}
+	var result struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return "", err
+	}
+	return result.URL, nil
+}
+
+func chunkString(s string, size int) []string {
+	var chunks []string
+	for len(s) > size {
+		cut := strings.LastIndex(s[:size], "\n")
+		if cut <= 0 {
+			cut = size
+		}
+		chunks = append(chunks, s[:cut])
+		s = s[cut:]
+	}
+	if s != "" {
+		chunks = append(chunks, s)
+	}
+	return chunks
+}
+
+// validateModel rejects unknown model values up front so the failure is a
+// clear log line instead of a mid-run surprise.
+func validateModel(model string) error {
+	for _, m := range llm.KnownModels {
+		if m == model {
+			return nil
+		}
+	}
+	return fmt.Errorf("unknown model %q (expected one of: %s)", model, strings.Join(llm.KnownModels, ", "))
 }
 
 func tailFile(path string, n int) []string {

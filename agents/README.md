@@ -1,5 +1,14 @@
 # MarketFlow AI — Repo Scout Pipeline
 
+> **Note (2026-07-04):** The Scout & Research agents now run **natively inside
+> the Go backend** (`backend/internal/pipeline`) — GitHub REST API for search,
+> the same Anthropic/Groq/Ollama routing as Ask AI for classification and
+> research, and the local SQLite DB for storage. Trigger them from the
+> dashboard's Pipeline tab. No `claude` CLI, Supabase, or cron needed.
+> Research reports are viewable in the dashboard; Notion export is optional
+> (set NOTION_API_KEY + NOTION_PARENT_PAGE_ID). The prompt files and
+> scout-cron.sh below are kept for reference only.
+
 Two Claude Code agents that automatically find and research high-quality
 open-source trading/quant repos, then log findings to Notion.
 
