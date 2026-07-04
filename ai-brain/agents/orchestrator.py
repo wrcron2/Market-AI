@@ -70,6 +70,24 @@ class Orchestrator:
 
         self._graph = self._build_graph()
 
+    # ── Live telemetry ─────────────────────────────────────────────────────────
+
+    def _emit(self, symbol: str, step: str, status: str, detail: str = "") -> None:
+        """
+        Broadcast one pipeline step to the dashboard's Brain Activity feed.
+        Fire-and-forget: a telemetry failure must never affect the pipeline.
+        step:   scan | signal | debate | risk | stage | execute
+        status: ok | skip | blocked | error
+        """
+        try:
+            httpx.post(
+                f"{self._backend_base}/api/brain/activity",
+                json={"symbol": symbol, "step": step, "status": status, "detail": detail},
+                timeout=2,
+            )
+        except Exception:
+            pass
+
     # ── Public API ─────────────────────────────────────────────────────────────
 
     def run(self, market_snapshot: dict[str, Any]) -> AgentState:
@@ -81,6 +99,8 @@ class Orchestrator:
         Reg NMS guard: snapshots with _source="delayed" are blocked from
         reaching the Green Light gate. Paper mode only.
         """
+        sym = market_snapshot.get("symbol", "?")
+
         # Pipeline pause gate: skip processing when cloud LLM is down
         if self._is_pipeline_paused():
             log.warning(
@@ -88,6 +108,7 @@ class Orchestrator:
                 symbol=market_snapshot.get("symbol"),
                 note="Cloud LLM fallback active — pipeline paused to avoid 38-min local inference",
             )
+            self._emit(sym, "scan", "skip", "pipeline paused — cloud LLM fallback active")
             return {"market_snapshot": market_snapshot, "signal": None,
                     "debate_result": None, "risk_result": None,
                     "submitted": False, "executed": False}
@@ -100,10 +121,12 @@ class Orchestrator:
                 symbol=market_snapshot.get("symbol"),
                 note="Reg NMS guard — delayed data blocked in live mode only",
             )
+            self._emit(sym, "scan", "blocked", "Reg NMS guard — delayed data blocked in live mode")
             return {"market_snapshot": market_snapshot, "signal": None,
                     "debate_result": None, "risk_result": None,
                     "submitted": False, "executed": False}
         self._sync_llm_provider()
+        self._emit(sym, "scan", "ok", f"analyzing bar (source: {market_snapshot.get('_source', '?')})")
         initial: AgentState = {
             "market_snapshot": market_snapshot,
             "signal": None,
@@ -118,7 +141,13 @@ class Orchestrator:
 
     def _node_generate(self, state: AgentState) -> AgentState:
         """Node 1: Generate a candidate signal from market data."""
+        sym = state["market_snapshot"].get("symbol", "?")
         signal = self.signal_agent.generate(state["market_snapshot"])
+        if signal is None:
+            self._emit(sym, "signal", "skip", "no setup detected — no signal generated")
+        else:
+            self._emit(sym, "signal", "ok",
+                       f"{signal.direction} candidate · {signal.strategy_name} · confidence {signal.initial_confidence:.2f}")
         return {**state, "signal": signal}
 
     def _node_debate(self, state: AgentState) -> AgentState:
@@ -130,6 +159,7 @@ class Orchestrator:
         except RuntimeError as exc:
             symbol = state["signal"].symbol
             log.warning("orchestrator.debate_failed", symbol=symbol, error=str(exc))
+            self._emit(symbol, "debate", "error", f"debate failed — signal dropped: {exc}")
             # Broadcast to dashboard so operator knows signal was silently dropped
             try:
                 httpx.post(
@@ -140,6 +170,8 @@ class Orchestrator:
             except Exception:
                 pass  # never let broadcast failure kill the pipeline
             return {**state, "debate_result": None}
+        self._emit(state["signal"].symbol, "debate", "ok",
+                   f"consensus {debate.consensus_direction} · confidence {debate.adjusted_confidence:.2f}")
         return {**state, "debate_result": debate}
 
     def _node_risk(self, state: AgentState) -> AgentState:
@@ -147,6 +179,12 @@ class Orchestrator:
         if not state.get("debate_result"):
             return state
         risk = self.risk_agent.assess(state["signal"], state["debate_result"], state["market_snapshot"])
+        sym = state["signal"].symbol
+        if risk.is_blocked:
+            self._emit(sym, "risk", "blocked", f"blocked — {risk.block_reason}")
+        else:
+            self._emit(sym, "risk", "ok",
+                       f"approved · qty {risk.adjusted_quantity:.0f} · confidence {risk.final_confidence:.2f} · risk {risk.risk_score:.2f}")
         return {**state, "risk_result": risk}
 
     def _node_submit(self, state: AgentState) -> AgentState:
@@ -192,10 +230,17 @@ class Orchestrator:
                 accepted=accepted,
                 message=data.get("message", ""),
             )
+            if accepted:
+                self._emit(signal.symbol, "stage", "ok",
+                           f"order staged PENDING · {debate.consensus_direction} {risk.adjusted_quantity:.0f} — awaiting Green Light / auto-execute")
+            else:
+                self._emit(signal.symbol, "stage", "skip",
+                           f"backend declined: {data.get('message', 'duplicate or filtered')}")
             return {**state, "submitted": accepted}
 
         except Exception as exc:
             log.error("orchestrator.http_error", error=str(exc))
+            self._emit(signal.symbol, "stage", "error", f"submit to backend failed: {exc}")
             return {**state, "error": str(exc), "submitted": False}
 
     def _node_execute(self, state: AgentState) -> AgentState:
@@ -204,7 +249,12 @@ class Orchestrator:
         Skipped entirely when AUTO_EXECUTE=false (manual Green Light flow).
         Checks today's daily loss limit before executing.
         """
+        sym = state["signal"].symbol if state.get("signal") else "?"
+
         if self._alpaca is None or not self._is_auto_execute_enabled():
+            if state.get("submitted"):
+                self._emit(sym, "execute", "skip",
+                           "auto-execute OFF — order stays PENDING until you approve it (Green Light)")
             return state
 
         # Block execution for pre/post market watchlist signals
@@ -212,6 +262,7 @@ class Orchestrator:
             log.info("orchestrator.watchlist_signal_skipped",
                      symbol=state.get("signal", {}).symbol if state.get("signal") else "?",
                      note="pre/post market signal — staged as watchlist, not executed")
+            self._emit(sym, "execute", "skip", "pre/post-market signal — staged as watchlist, not executed")
             return state
 
         # Enforce a higher confidence bar for autonomous execution
@@ -222,12 +273,15 @@ class Orchestrator:
                      symbol=state["signal"].symbol,
                      confidence=risk.final_confidence,
                      required=auto_min_conf)
+            self._emit(sym, "execute", "skip",
+                       f"confidence {risk.final_confidence:.2f} below auto-execute bar {auto_min_conf:.2f} — needs manual Green Light")
             return state
 
         # Never place orders when the market is closed
         if not self._alpaca.is_market_open():
             sym = state["signal"].symbol if state.get("signal") else "?"
             log.info("orchestrator.market_closed_skip", symbol=sym)
+            self._emit(sym, "execute", "skip", "market closed — no order placed")
             return state
 
         signal = state["signal"]
@@ -242,6 +296,8 @@ class Orchestrator:
             limits = self._position_store.get_today_limits()
             if limits.get("is_halted"):
                 log.info("orchestrator.daily_limit_halted", symbol=signal.symbol)
+                self._emit(signal.symbol, "execute", "blocked",
+                           f"daily loss limit reached (realized {limits.get('realized_pnl', 0):+.2f}) — halted until tomorrow")
                 if self._notifier:
                     self._notifier.critical(
                         "Daily Loss Limit Reached — AUTO_EXECUTE Halted",
@@ -255,6 +311,8 @@ class Orchestrator:
             log.info("orchestrator.duplicate_position_skipped",
                      symbol=signal.symbol,
                      existing_qty=existing.get("qty"))
+            self._emit(signal.symbol, "execute", "skip",
+                       f"already holding {existing.get('qty')} shares — duplicate position skipped")
             return state
 
         try:
@@ -300,11 +358,14 @@ class Orchestrator:
                      symbol=signal.symbol,
                      direction=direction,
                      alpaca_order_id=alpaca_order_id)
+            self._emit(signal.symbol, "execute", "ok",
+                       f"{direction} {risk.adjusted_quantity:.0f} auto-executed on Alpaca @ {fill_price:.2f} (order {alpaca_order_id[:8]})")
             return {**state, "executed": True}
 
         except Exception as exc:
             log.error("orchestrator.execute_error",
                       signal_id=signal.signal_id, error=str(exc))
+            self._emit(signal.symbol, "execute", "error", f"Alpaca order failed: {exc}")
             return {**state, "error": str(exc), "executed": False}
 
     def _is_auto_execute_enabled(self) -> bool:

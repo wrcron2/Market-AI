@@ -11,6 +11,8 @@ import { AuditLog } from './AuditLog'
 import { AlertsPanel } from './AlertsPanel'
 import { PipelinePanel } from './PipelinePanel'
 import { ReportsPanel } from './ReportsPanel'
+import { InvestedStocks } from './InvestedStocks'
+import { BrainActivityFeed, type BrainEvent } from './BrainActivityFeed'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useMarketStatus } from '../hooks/useMarketStatus'
 import type { StagedOrder, ListPendingResponse } from '../types'
@@ -56,6 +58,7 @@ export function Dashboard() {
   const [askOpen, setAskOpen] = useState(true)
   const [pendingOrders, setPendingOrders] = useState<StagedOrder[]>([])
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([])
+  const [brainEvents, setBrainEvents] = useState<BrainEvent[]>([])
   const [wsConnected, setWsConnected] = useState(false)
   const [llmAlert, setLlmAlert] = useState<string | null>(null)
   const [llmFallbackActive, setLlmFallbackActive] = useState(false)
@@ -95,6 +98,10 @@ export function Dashboard() {
     onConnect: () => setWsConnected(true),
     onDisconnect: () => setWsConnected(false),
     onMessage: {
+      brain_activity: (payload) => {
+        const ev = payload as BrainEvent
+        setBrainEvents((prev) => [ev, ...prev].slice(0, 120))
+      },
       order_staged: (payload) => {
         const order = payload as StagedOrder
         setPendingOrders((prev) => [order, ...prev])
@@ -313,10 +320,12 @@ export function Dashboard() {
       {activeTab === 'signals' && (
         <div className="flex flex-col gap-4">
           <PortfolioStats stats={stats} wsConnected={wsConnected} />
+          <InvestedStocks />
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_1fr]">
             <GreenLightPanel orders={pendingOrders} onApprove={approve} onReject={reject} />
             <SignalFeed events={feedEvents} />
           </div>
+          <BrainActivityFeed liveEvents={brainEvents} />
         </div>
       )}
 

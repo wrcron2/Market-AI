@@ -79,14 +79,55 @@ def _positions_table(positions: list[dict[str, Any]]) -> str:
     return "\n".join(rows)
 
 
+def _why_no_trades(
+    auto_exec: bool,
+    pending_count: int,
+    trade_count: int,
+    open_positions: list[dict[str, Any]],
+) -> str:
+    """Deterministic explanation of why the balance did or didn't move today.
+    Rendered verbatim in the report — no LLM involved, so it can't hallucinate."""
+    lines: list[str] = []
+    if trade_count == 0:
+        lines.append("**No buys or sells were executed today.** Here is exactly why:")
+        if not auto_exec:
+            lines.append(
+                "- **Auto-execute is OFF.** The AI staged signals as PENDING, but nothing trades "
+                "until you approve it at the Green Light gate. "
+                + (f"**{pending_count} signal(s) are waiting for your approval right now.**"
+                   if pending_count > 0 else "No signals are currently waiting.")
+            )
+        else:
+            lines.append(
+                "- Auto-execute is ON, but no signal cleared the execution bar today "
+                "(confidence threshold, market-hours check, duplicate-position guard, or daily loss limit). "
+                "See the Brain Activity feed on the dashboard for each skip reason."
+            )
+    if open_positions:
+        lines.append(
+            f"- The account still holds **{len(open_positions)} open position(s)** "
+            f"({', '.join(p['symbol'] for p in open_positions)}). Their value moves with the market — "
+            "that changes *equity* and *unrealized P&L*, but **realized P&L only changes when a position "
+            "is closed**, which is why the realized balance can stay flat on a day with no sells."
+        )
+    else:
+        lines.append("- The account holds no open positions — it is fully in cash.")
+    return "\n".join(lines)
+
+
 def _build_data_summary(
     account: dict[str, Any],
     today_data: dict[str, Any],
     open_positions: list[dict[str, Any]],
+    auto_exec: bool,
+    pending_count: int,
 ) -> str:
     trades = today_data.get("today_trades") or []
     order_stats = today_data.get("order_stats") or {}
     return (
+        f"Auto-execute: {'ON' if auto_exec else 'OFF — trades need manual Green Light approval'}\n"
+        f"Signals currently PENDING approval: {pending_count}\n"
+        f"Unrealized P&L on open positions: {_fmt_usd(sum(float(p.get('unrealized_pl', 0)) for p in open_positions))}\n"
         f"Equity: ${float(account.get('equity', 0)):,.2f}\n"
         f"Today's realized P&L: {_fmt_usd(today_data.get('today_realized_pnl', 0))}\n"
         f"Today's trade count: {today_data.get('today_trade_count', 0)}\n"
@@ -135,7 +176,17 @@ def _generate(backend_url: str, alpaca: Any, router: LLMRouter) -> None:
         log.warning("eod_report.positions_fetch_failed", error=str(exc))
         open_positions = []
 
-    data_summary = _build_data_summary(account, today_data, open_positions)
+    try:
+        auto_exec = httpx.get(f"{backend_url}/api/auto-execute", timeout=5).json().get("enabled", False)
+    except Exception:
+        auto_exec = False
+    try:
+        pending = httpx.get(f"{backend_url}/api/orders/pending", timeout=5).json()
+        pending_count = int(pending.get("total") or len(pending.get("orders") or []))
+    except Exception:
+        pending_count = 0
+
+    data_summary = _build_data_summary(account, today_data, open_positions, auto_exec, pending_count)
 
     narrative = router.complete(
         system=EOD_SYSTEM,
@@ -152,6 +203,10 @@ def _generate(backend_url: str, alpaca: Any, router: LLMRouter) -> None:
 ### {date} · Paper Trading (Alpaca)
 
 {narrative.strip()}
+
+## Trading Activity Explained
+
+{_why_no_trades(auto_exec, pending_count, int(today_data.get('today_trade_count', 0)), open_positions)}
 
 ## Account Snapshot
 

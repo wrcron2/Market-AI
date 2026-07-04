@@ -1,5 +1,12 @@
 # MarketFlow AI — Claude Code Reference
 
+## Notion Sync — MANDATORY after every push to main
+Every push to `main` that changes product behavior (feature, bug fix, architecture,
+config) MUST be followed by a Notion update in the same session, using the
+`product-notion-sync` skill (it defines what maps to which page and the exact formats).
+Fetch "Current Flow & Status" first to get the next bug number. Pages are listed in
+memory `reference_notion.md`. Docs-only or formatting-only pushes are exempt.
+
 ## Phase 2 — Alpaca MCP Integration
 When upgrading AlpacaExecutor to MCP-based calls (Phase 2), use these exact tool names
 from `tradermonty/claude-trading-skills` portfolio-manager skill:

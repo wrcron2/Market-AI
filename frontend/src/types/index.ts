@@ -39,6 +39,7 @@ export type WsMessageType =
   | 'llm_fallback'
   | 'mode_changed'
   | 'eod_report_ready'
+  | 'brain_activity'
 
 export interface WsMessage {
   type: WsMessageType

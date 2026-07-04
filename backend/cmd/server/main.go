@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/marketflow/backend/internal/alpaca"
+	"github.com/marketflow/backend/internal/brainfeed"
 	"github.com/marketflow/backend/internal/askai"
 	"github.com/marketflow/backend/internal/db"
 	"github.com/marketflow/backend/internal/greenlight"
@@ -63,6 +64,15 @@ func main() {
 	// ─── WebSocket Hub ────────────────────────────────────────────────────────
 	hub := ws.NewHub(logger)
 	go hub.Run()
+
+	// ─── Email notifier (Resend preferred, SMTP fallback) ─────────────────────
+	emailNotifier := notify.New(logger)
+	if emailNotifier.Enabled() {
+		logger.Info("email_notifier_enabled", zap.String("to", os.Getenv("ALERT_EMAIL_TO")))
+	} else {
+		logger.Warn("email_notifier_disabled",
+			zap.String("hint", "set ALERT_EMAIL_TO plus RESEND_API_KEY (or SMTP_FROM/SMTP_PASSWORD) in .env"))
+	}
 
 	// ─── Green Light HTTP Handler ─────────────────────────────────────────────
 	glHandler    := greenlight.NewHandler(database, hub, modeManager, logger)
@@ -589,12 +599,41 @@ func main() {
 				"title":    req.Title,
 				"body":     req.Body,
 			})
+			// CRITICAL/HIGH alerts also go out by email (brain posts its
+			// alerts here — previously they never reached the inbox).
+			if req.Severity == "CRITICAL" || req.Severity == "HIGH" {
+				go func() { _ = emailNotifier.Send(req.Severity, req.Title, req.Body) }()
+			}
 			logger.Info("alert received", zap.String("severity", req.Severity), zap.String("title", req.Title))
 			writeJSON(w, map[string]any{"success": true})
 
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
+	})
+
+	// ─── Alert test — verifies DB + WebSocket + email in one shot ─────────────
+	mux.HandleFunc("/api/alerts/test", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		title := "Test Alert"
+		body := "Manual alert test fired from the dashboard at " + time.Now().UTC().Format(time.RFC3339) +
+			". If you can read this in your inbox, email alerts are working."
+		_ = database.InsertAlert("HIGH", title, body)
+		hub.Broadcast("alert", map[string]any{"severity": "HIGH", "title": title, "body": body})
+		emailErr := emailNotifier.Send("HIGH", title, body)
+		resp := map[string]any{
+			"stored":        true,
+			"broadcast":     true,
+			"email_enabled": emailNotifier.Enabled(),
+			"email_sent":    emailErr == nil && emailNotifier.Enabled(),
+		}
+		if emailErr != nil {
+			resp["email_error"] = emailErr.Error()
+		}
+		writeJSON(w, resp)
 	})
 
 	// ─── Threshold Store — adaptive confidence floors ─────────────────────────────
@@ -657,12 +696,13 @@ func main() {
 			return
 		}
 		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-		entries, err := database.ListAuditLog(limit)
+		offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+		entries, total, err := database.ListAuditLog(limit, offset)
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, map[string]any{"entries": entries})
+		writeJSON(w, map[string]any{"entries": entries, "total": total})
 	})
 
 	// ─── Retry a failed order ─────────────────────────────────────────────────
@@ -706,6 +746,16 @@ func main() {
 	mux.HandleFunc("/api/versions",                    versions.List)
 	mux.HandleFunc("/api/versions/switch",             versions.Switch)
 	mux.HandleFunc("/api/versions/{version}/note",     versions.UpdateNote)
+
+	// ─── Brain Activity live feed (brain → dashboard telemetry) ────────────────
+	brainFeed := brainfeed.New(hub)
+	mux.HandleFunc("/api/brain/activity", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			brainFeed.Post(w, r)
+			return
+		}
+		brainFeed.List(w, r)
+	})
 
 	// ─── Repo Scout & Research Pipeline ─────────────────────────────────────────
 	mux.HandleFunc("/api/pipeline/repos",          pipelineHandler.Repos)
@@ -811,10 +861,6 @@ func main() {
 		}
 	})
 	// ─── Ask AI endpoints ────────────────────────────────────────────────────────
-	emailNotifier := notify.New(logger)
-	if emailNotifier.Enabled() {
-		logger.Info("email_notifier_enabled", zap.String("to", os.Getenv("ALERT_EMAIL_TO")))
-	}
 	askHandler := askai.NewHandler(database, logger, hub, emailNotifier,
 		func() bool {
 			autoExMu.RLock()

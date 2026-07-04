@@ -243,7 +243,8 @@ func (d *DB) appendAuditLog(signalID, from, to, actor, message string) error {
 	return err
 }
 
-// AuditLogEntry mirrors a row from order_audit_log.
+// AuditLogEntry mirrors a row from order_audit_log, enriched with the order's
+// trade details so the dashboard can show what each transition was about.
 type AuditLogEntry struct {
 	ID         int64  `json:"id"`
 	SignalID   string `json:"signal_id"`
@@ -252,33 +253,58 @@ type AuditLogEntry struct {
 	Actor      string `json:"actor"`
 	Message    string `json:"message"`
 	Timestamp  int64  `json:"timestamp"`
+
+	Symbol       string  `json:"symbol"`
+	Direction    string  `json:"direction"`
+	Quantity     float64 `json:"quantity"`
+	LimitPrice   float64 `json:"limit_price"`
+	Confidence   float64 `json:"confidence"`
+	StrategyName string  `json:"strategy_name"`
+	Reasoning    string  `json:"reasoning"`
 }
 
-// ListAuditLog returns the most recent N audit log entries across all orders.
-func (d *DB) ListAuditLog(limit int) ([]*AuditLogEntry, error) {
+// ListAuditLog returns one page of audit log entries (newest first) joined
+// with the staged order's trade details, plus the total row count.
+func (d *DB) ListAuditLog(limit, offset int) ([]*AuditLogEntry, int, error) {
 	if limit <= 0 {
-		limit = 200
+		limit = 50
 	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	var total int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM order_audit_log`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
 	rows, err := d.Query(`
-		SELECT id, signal_id, COALESCE(from_status,''), to_status,
-		       actor, COALESCE(message,''), timestamp
-		FROM order_audit_log
-		ORDER BY timestamp DESC
-		LIMIT ?`, limit)
+		SELECT a.id, a.signal_id, COALESCE(a.from_status,''), a.to_status,
+		       a.actor, COALESCE(a.message,''), a.timestamp,
+		       COALESCE(o.symbol,''), COALESCE(o.direction,''),
+		       COALESCE(o.quantity,0), COALESCE(o.limit_price,0),
+		       COALESCE(o.confidence,0), COALESCE(o.strategy_name,''),
+		       COALESCE(o.reasoning,'')
+		FROM order_audit_log a
+		LEFT JOIN staged_orders o ON o.id = a.signal_id
+		ORDER BY a.timestamp DESC
+		LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	var out []*AuditLogEntry
 	for rows.Next() {
 		e := &AuditLogEntry{}
 		if err := rows.Scan(&e.ID, &e.SignalID, &e.FromStatus, &e.ToStatus,
-			&e.Actor, &e.Message, &e.Timestamp); err != nil {
-			return nil, err
+			&e.Actor, &e.Message, &e.Timestamp,
+			&e.Symbol, &e.Direction, &e.Quantity, &e.LimitPrice,
+			&e.Confidence, &e.StrategyName, &e.Reasoning); err != nil {
+			return nil, 0, err
 		}
 		out = append(out, e)
 	}
-	return out, nil
+	return out, total, nil
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
