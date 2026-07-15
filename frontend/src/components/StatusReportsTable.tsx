@@ -102,10 +102,14 @@ export function StatusReportsTable() {
 
   return (
     <div>
-      <h3 className="mb-3 flex items-center gap-2.5 text-base font-semibold">
+      <h3 className="flex items-center gap-2.5 text-base font-semibold">
         <FileText size={16} />
         Chief PM Status Reports
       </h3>
+      <p className="mb-3 mt-1 text-[12px] text-ink-faint">
+        On-demand deep audits, created only when a <span className="font-mono">/chief-pm</span> audit
+        session runs — unlike the End-of-Day report above, these are not generated daily.
+      </p>
       <div className="overflow-hidden rounded-xl border border-line bg-surface">
         <div className="overflow-x-auto">
           <table className="w-full">
