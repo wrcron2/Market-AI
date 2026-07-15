@@ -27,9 +27,12 @@ export function EndOfDayReport({ refreshToken }: { refreshToken?: number }) {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [dates, setDates] = useState<string[]>([])
+  const [selectedDate, setSelectedDate] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('date'),
+  )
 
-  const load = useCallback(() => {
-    const date = new URLSearchParams(window.location.search).get('date')
+  const load = useCallback((date: string | null) => {
     const url = date ? `/api/reports/eod?date=${encodeURIComponent(date)}` : '/api/reports/eod/latest'
     setLoading(true)
     setNotFound(false)
@@ -43,7 +46,14 @@ export function EndOfDayReport({ refreshToken }: { refreshToken?: number }) {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { load() }, [load, refreshToken])
+  useEffect(() => { load(selectedDate) }, [load, selectedDate, refreshToken])
+
+  useEffect(() => {
+    fetch('/api/reports/eod/dates')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.dates) setDates(d.dates) })
+      .catch(() => { /* history selector just stays hidden */ })
+  }, [refreshToken])
 
   const handleDownload = () => {
     if (!report) return
@@ -79,14 +89,30 @@ export function EndOfDayReport({ refreshToken }: { refreshToken?: number }) {
     )
   }
 
+  const dateSelector = dates.length > 0 && (
+    <select
+      value={selectedDate ?? report?.date ?? dates[0]}
+      onChange={(e) => setSelectedDate(e.target.value)}
+      title="View a previous day's report"
+      className="cursor-pointer rounded-lg border border-line-soft bg-surface-sunken px-2.5 py-1.5 font-mono text-[12px] font-medium text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink focus:outline-none"
+    >
+      {dates.map((d, i) => (
+        <option key={d} value={d}>
+          {d}{i === 0 ? ' (latest)' : ''}
+        </option>
+      ))}
+    </select>
+  )
+
   if (notFound || !report) {
     return (
       <div className="rounded-xl border border-line bg-surface px-6 py-10 text-center">
         <FileText size={28} className="mx-auto mb-3 text-ink-faint" />
-        <div className="text-sm font-semibold text-ink-muted">No end-of-day report yet</div>
+        <div className="text-sm font-semibold text-ink-muted">No end-of-day report for this date</div>
         <div className="mt-1 text-[12px] text-ink-faint">
           A report is generated automatically after the market closes and the day's trading finishes.
         </div>
+        {dateSelector && <div className="mt-4 flex justify-center">{dateSelector}</div>}
       </div>
     )
   }
@@ -115,6 +141,7 @@ export function EndOfDayReport({ refreshToken }: { refreshToken?: number }) {
           </div>
 
           <div className="flex items-center gap-2">
+            {dateSelector}
             <button
               onClick={handleDownload}
               title="Download report as Markdown"
