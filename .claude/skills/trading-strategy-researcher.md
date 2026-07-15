@@ -45,7 +45,7 @@ Before every recommendation:
 
 ## Complete Strategy Knowledge Base
 
-### Category 1 — Options Strategies (39 strategies)
+### Category 1 — Options Strategies (47 strategies)
 
 #### Directional
 | # | Strategy | Market View | Key Setup |
@@ -59,8 +59,8 @@ Before every recommendation:
 | 7 | Bear Call Spread | Moderately bearish | Sell lower strike call + buy higher strike call; credit spread |
 | 8 | Bear Put Spread | Moderately bearish | Buy higher strike put + sell lower strike put; debit spread |
 | 9 | Bull Call Ladder | Bullish to a point | Bull call spread + sell additional OTM call; risk beyond upper strike |
-| 10 | Bull Put Ladder | Bullish to a point | Bull put spread + sell additional OTM put |
-| 11 | Bear Call Ladder | Bearish to a point | Bear call spread + buy additional OTM call |
+| 10 | Bull Put Ladder | Bearish adjustment | Bull put spread + buy additional lower-strike OTM put (1 short, 2 long puts); profits on big downside |
+| 11 | Bear Call Ladder | Bullish adjustment | Bear call spread + buy additional OTM call (1 short, 2 long calls); profits on big upside |
 | 12 | Bear Put Ladder | Bearish to a point | Bear put spread + buy additional OTM put |
 
 #### Synthetic
@@ -121,7 +121,7 @@ Before every recommendation:
 | 48 | Price Momentum | Trend-following | Buy winners, sell losers based on past 3–12 month returns. Formula: rank stocks by cumulative return R(t-12, t-1), go long top decile, short bottom decile |
 | 49 | Residual Momentum | Alpha-focused | Momentum on idiosyncratic returns (strip beta). R_resid = R_total − β × R_market |
 | 50 | Earnings Momentum | Fundamental | Trade on SUE (Standardized Unexpected Earnings). SUE = (EPS_actual − EPS_forecast) / σ(forecast_error) |
-| 51 | Pairs Trading | Mean-reversion | Find cointegrated pair (ADF test p < 0.05), trade spread when z-score > 2σ. Entry: z > 2, Exit: z < 0.5 |
+| 51 | Pairs Trading | Mean-reversion | Find cointegrated pair (ADF test p < 0.05), trade spread when z-score > 2σ. Entry: |z| > 2, Exit: z crosses 0 (see Mathematical Reference) |
 | 52 | Mean Reversion — Single Cluster | Statistical | Group stocks by sector; trade deviations from cluster mean. z_i = (P_i − μ_cluster) / σ_cluster |
 | 53 | Mean Reversion — Multiple Clusters | Statistical | K-means clustering on returns; trade inter-cluster spread deviations |
 | 54 | Mean Reversion — Weighted Regression | Statistical | WLS regression residuals as signal; weight by inverse volatility |
@@ -251,7 +251,7 @@ Before every recommendation:
 | 138 | ABS Relative Value | Trade asset-backed securities vs benchmark at spread extremes |
 | 139 | CLO Equity Tranche | Invest in CLO equity for leveraged credit exposure; trade on spread tightening |
 | 140 | Distressed Debt | Buy deeply discounted distressed bonds; catalyst = restructuring/recovery |
-| 141 | Merger Arbitrage | Buy target + short acquirer at deal announcement; converge at close |
+| 141 | Merger Arbitrage | Buy target at deal announcement; short acquirer ONLY in stock-for-stock deals (cash deals: long target only); converge at close |
 | 142 | Spin-Off Investing | Buy spin-off company post-separation; forced selling creates undervaluation |
 | 143 | Tax Loss Harvesting | Sell losers for tax benefit in Nov–Dec; repurchase substitute exposure |
 | 144 | Crypto Momentum | Trend-follow top cryptocurrencies by market cap using MA cross |
@@ -267,6 +267,10 @@ Before every recommendation:
 
 ## Strategy Selection by Market Regime
 
+> **Source of truth:** regime definitions and their trading restrictions are owned by
+> `risk-and-portfolio.md` (Market Regime Rules section). The thresholds below mirror it —
+> if the two ever differ, `risk-and-portfolio.md` wins. Never restate or reinterpret its rules.
+
 ### BULL MARKET (VIX < 15, SPY uptrend)
 **Preferred strategies:**
 - Price Momentum (#48), Sector Rotation (#76), Trend Following (#125)
@@ -275,7 +279,7 @@ Before every recommendation:
 
 **Avoid:** Short Selling (#67), Bear spreads (#7–8), VIX mean reversion long side
 
-### RANGE MARKET (VIX 15–20, SPY sideways)
+### RANGE MARKET (VIX < 20, SPY sideways)
 **Preferred strategies:**
 - Pairs Trading (#51), Mean Reversion (#52–54, #83)
 - Short Straddle (#18), Short Strangle (#20), Iron Condor (#37)
@@ -283,11 +287,11 @@ Before every recommendation:
 
 **Avoid:** Trend Following (#125), Channel Breakout (#60)
 
-### BEAR MARKET (VIX 20–30, SPY downtrend)
+### BEAR MARKET (VIX > 20, SPY downtrend; VIX > 30 escalates to CRISIS)
 **Preferred strategies:**
 - Short Selling (#67), Bear Put Spread (#8), Protective Put (#3)
 - Mean Reversion on oversold extremes (#52–54 with RSI < 25)
-- VIX Term Structure (#104), Volatility Risk Premium — long side
+- VIX Term Structure (#104), Long Volatility — Long Straddle (#17) / Long Strangle (#19). Do NOT sell the Volatility Risk Premium (#103) in a rising-vol regime
 - Gold as Hedge (#123)
 
 **Avoid:** Momentum long-only, Bull spreads, Covered Calls on weak stocks
@@ -299,7 +303,7 @@ Before every recommendation:
 - Cash / Short-term Treasuries
 - Distressed Debt (#140) — after initial crash stabilises
 
-**Block:** All new long equity entries unless RSI < 25 + volume spike (per risk rules)
+**Block:** ALL new long equity entries — no exceptions (per risk-and-portfolio.md CRISIS rules: block all new BUY signals; SHORT allowed at 0.25× size; COVER always allowed; confidence floor 0.95). The RSI < 28 + volume-spike exception exists only in BEAR MARKET, never in CRISIS.
 
 ---
 
