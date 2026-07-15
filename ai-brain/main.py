@@ -59,6 +59,8 @@ import httpx
 import structlog
 from dotenv import load_dotenv
 
+from agents.telemetry import emit_activity
+
 load_dotenv()
 
 import logging
@@ -319,9 +321,16 @@ def main() -> None:
                      note="signals staged as watchlist only — no execution until market open")
 
         # ── Pre-filter: drop flat/neutral snapshots before touching the LLM ──
-        before = len(snapshots)
-        snapshots = [s for s in snapshots if _is_interesting(s)]
-        log.info("brain.prefilter", before=before, after=len(snapshots), dropped=before - len(snapshots))
+        scanned_count = len(snapshots)
+        interesting, dull = [], []
+        for s in snapshots:
+            (interesting if _is_interesting(s) else dull).append(s)
+        for s in dull:
+            emit_activity(backend_url, s["symbol"], "scan", "skip",
+                          "prefilter: flat/neutral bar — no indicator in an extreme zone, not worth AI analysis")
+        snapshots = interesting
+        prefiltered_count = len(dull)
+        log.info("brain.prefilter", before=scanned_count, after=len(snapshots), dropped=prefiltered_count)
 
         # ── Relative Strength Rotation — trade only the strongest ETF ──────────
         # dual_momentum design: among candidates meeting entry criteria, trade only
@@ -340,24 +349,47 @@ def main() -> None:
             best = max(snapshots, key=_momentum_score)
             if len(snapshots) > 1:
                 dropped_symbols = [s["symbol"] for s in snapshots if s["symbol"] != best["symbol"]]
+                for sym in dropped_symbols:
+                    emit_activity(backend_url, sym, "scan", "skip",
+                                  f"rotation: {best['symbol']} has stronger momentum — dual-momentum trades only the strongest ETF")
                 log.info("brain.relative_strength_rotation",
                          selected=best["symbol"],
                          dropped=dropped_symbols,
                          note="trading strongest ETF only")
                 snapshots = [best]
+        rotation_dropped_count = scanned_count - prefiltered_count - len(snapshots)
 
         # ── Deduplication: skip symbols with a pending signal or open position ──
         pending_symbols = position_store.get_pending_symbols()
         open_symbols    = position_store.get_open_symbols()
         blocked_symbols = pending_symbols | open_symbols
+        dedup_dropped_count = 0
         if blocked_symbols:
             before_dedup = len(snapshots)
+            for s in snapshots:
+                if s["symbol"] in blocked_symbols:
+                    reason = "an open position" if s["symbol"] in open_symbols else "a pending signal"
+                    emit_activity(backend_url, s["symbol"], "scan", "skip",
+                                  f"dedup: already have {reason} in {s['symbol']} — no duplicate trades")
             snapshots = [s for s in snapshots if s["symbol"] not in blocked_symbols]
+            dedup_dropped_count = before_dedup - len(snapshots)
             log.info(
                 "brain.dedup_filter",
                 blocked=sorted(blocked_symbols),
-                dropped=before_dedup - len(snapshots),
+                dropped=dedup_dropped_count,
             )
+
+        # ── Per-bar heartbeat: always visible on the dashboard, even when every
+        # symbol was filtered out — proves the brain is alive and explains why
+        # a quiet bar produced no signals.
+        if snapshots:
+            heartbeat = (f"bar #{bar_count}: scanned {scanned_count} · "
+                         f"{len(snapshots)} into AI pipeline ({', '.join(s['symbol'] for s in snapshots)})")
+        else:
+            heartbeat = (f"bar #{bar_count}: scanned {scanned_count}, all filtered out — "
+                         f"{prefiltered_count} flat, {rotation_dropped_count} weaker rotation, "
+                         f"{dedup_dropped_count} already held/pending. No new signals this bar.")
+        emit_activity(backend_url, "ALL", "scan", "ok" if snapshots else "skip", heartbeat)
 
         # ── Run pipeline in parallel across interesting symbols ────────────────
         with ThreadPoolExecutor(max_workers=PIPELINE_WORKERS) as pool:

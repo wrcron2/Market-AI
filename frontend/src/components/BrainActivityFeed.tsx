@@ -90,9 +90,11 @@ export function BrainActivityFeed({ liveEvents }: Props) {
       <div style={{ maxHeight: 340, overflowY: 'auto', padding: '8px 0' }}>
         {events.length === 0 && (
           <p style={{ color: '#475569', fontSize: 13, padding: '18px', margin: 0 }}>
-            No brain activity yet. Events appear here live as the AI brain scans symbols,
-            generates signals, debates them, sizes risk, and stages orders — with the reason
-            for every skip or block.
+            No brain activity received yet. During market hours the brain posts a scan summary
+            every bar (~5 min) plus a row for every symbol it skips, blocks, or trades — with the
+            reason. If this stays empty while the market is open, the brain container may be down,
+            or the backend was just restarted (this feed's history is in-memory and refills on the
+            next bar).
           </p>
         )}
         {events.map((e, i) => {

@@ -90,18 +90,30 @@ def _why_no_trades(
     lines: list[str] = []
     if trade_count == 0:
         lines.append("**No buys or sells were executed today.** Here is exactly why:")
-        if not auto_exec:
-            lines.append(
-                "- **Auto-execute is OFF.** The AI staged signals as PENDING, but nothing trades "
-                "until you approve it at the Green Light gate. "
-                + (f"**{pending_count} signal(s) are waiting for your approval right now.**"
-                   if pending_count > 0 else "No signals are currently waiting.")
-            )
+        if pending_count > 0:
+            if auto_exec:
+                lines.append(
+                    f"- **{pending_count} signal(s) were staged but did not clear the auto-execute bar** "
+                    "(confidence threshold, market-hours check, duplicate-position guard, or daily loss limit). "
+                    "They are PENDING at the Green Light gate — approve them there, or see the Brain "
+                    "Activity feed for each skip reason."
+                )
+            else:
+                lines.append(
+                    f"- **{pending_count} signal(s) are PENDING your approval at the Green Light gate.** "
+                    "Auto-execute is OFF, so they will not trade until you approve them."
+                )
         else:
             lines.append(
-                "- Auto-execute is ON, but no signal cleared the execution bar today "
-                "(confidence threshold, market-hours check, duplicate-position guard, or daily loss limit). "
-                "See the Brain Activity feed on the dashboard for each skip reason."
+                "- **The AI staged no new trade signals today.** It scanned the market every bar, but each "
+                "candidate was filtered out before becoming an order — most often because the strategy "
+                "already holds the strongest ETF (rotation + deduplication gates), or because no setup "
+                "cleared the confidence bar. The Brain Activity feed on the dashboard shows the reason "
+                "for every skip."
+            )
+            lines.append(
+                f"- Auto-execute is **{'ON' if auto_exec else 'OFF'}**, but that was not the blocker today — "
+                "there were no staged signals to " + ("execute." if auto_exec else "approve.")
             )
     if open_positions:
         lines.append(

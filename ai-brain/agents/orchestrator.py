@@ -29,6 +29,7 @@ from .debate_agent import DebateAgent
 from .risk_agent import RiskAgent
 from .router import Complexity, LLMRouter
 from .signal_agent import CandidateSignal, SignalAgent
+from .telemetry import emit_activity
 
 log = structlog.get_logger(__name__)
 
@@ -75,18 +76,10 @@ class Orchestrator:
     def _emit(self, symbol: str, step: str, status: str, detail: str = "") -> None:
         """
         Broadcast one pipeline step to the dashboard's Brain Activity feed.
-        Fire-and-forget: a telemetry failure must never affect the pipeline.
         step:   scan | signal | debate | risk | stage | execute
         status: ok | skip | blocked | error
         """
-        try:
-            httpx.post(
-                f"{self._backend_base}/api/brain/activity",
-                json={"symbol": symbol, "step": step, "status": status, "detail": detail},
-                timeout=2,
-            )
-        except Exception:
-            pass
+        emit_activity(self._backend_base, symbol, step, status, detail)
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
