@@ -122,6 +122,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
   const dayPnl = equity - lastEquity
   const buyingPower = parseFloat(account?.buying_power ?? '0')
   const portfolioVal = parseFloat(account?.portfolio_value ?? '0')
+  const cash = parseFloat(account?.cash ?? '0')
   const allTimePnl = summary?.all_time_realized_pnl ?? 0
 
   const symbolEntryTime: Record<string, number> = {}
@@ -142,10 +143,19 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
   const tradeBarData = closedSorted.map((p) => ({
     name: p.symbol, pnl: parseFloat((p.realized_pnl ?? 0).toFixed(2)), date: fmtShortDate(p.exit_time!),
   }))
-  const equityChartData = equityHistory.map((pt) => ({
+  // Alpaca's daily portfolio history reports each day's CLOSING equity, so its
+  // last point lags the live account by up to a full day. Append the current
+  // equity as a "Now" point so the line actually ends at what the account is
+  // worth this moment — not yesterday's close.
+  const baselineEquity = equityHistory[0]?.equity ?? 100_000
+  const equityChartData: { date: string; equity: number; isLive: boolean }[] = equityHistory.map((pt) => ({
     date: new Date(pt.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     equity: parseFloat(pt.equity.toFixed(2)),
+    isLive: false,
   }))
+  if (account && equity > 0) {
+    equityChartData.push({ date: 'Now', equity: parseFloat(equity.toFixed(2)), isLive: true })
+  }
 
   if (loading) {
     return (
@@ -310,31 +320,59 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                   <Tooltip
                     content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null
-                      const val = payload[0]?.value as number
+                      const pt = payload[0]?.payload as { equity: number; isLive: boolean }
+                      const val = pt.equity
+                      const delta = val - baselineEquity
+                      const deltaPct = baselineEquity ? (delta / baselineEquity) * 100 : 0
                       return (
                         <div className="rounded-lg border border-line-soft bg-surface-raised px-3.5 py-2.5">
-                          <div className="text-[11px] font-semibold text-ink-muted">{label}</div>
+                          <div className="text-[11px] font-semibold text-ink-muted">
+                            {pt.isLive ? 'Now · live equity' : `${label} · market close`}
+                          </div>
                           <div className="font-mono text-sm font-bold text-ink">${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                          {positions.length > 0 && (
-                            <div className="mt-1.5 flex flex-col gap-0.5">
+                          <div className={`font-mono text-[11px] ${pnlCls(delta)}`}>
+                            {delta >= 0 ? '+' : ''}${delta.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({deltaPct >= 0 ? '+' : ''}{deltaPct.toFixed(2)}%) since start
+                          </div>
+                          {/* Position P&L is a live snapshot, so it only makes sense on the
+                              live point — never stapled onto a historical close. */}
+                          {pt.isLive && positions.length > 0 && (
+                            <div className="mt-2 flex flex-col gap-1 border-t border-line-soft pt-1.5">
+                              <div className="text-[10px] uppercase tracking-wide text-ink-faint">What you hold right now</div>
                               {positions.map((p) => {
                                 const pl = parseFloat(p.unrealized_pl)
+                                const mv = parseFloat(p.market_value)
                                 return (
                                   <div key={p.symbol} className="flex items-center gap-2 text-[11px]">
-                                    <span className="font-mono font-semibold">{p.symbol}</span>
-                                    <span className="text-ink-faint">@ ${parseFloat(p.avg_entry_price).toFixed(2)}</span>
-                                    <span className={`font-mono ${pnlCls(pl)}`}>{pl >= 0 ? '+' : ''}${pl.toFixed(2)}</span>
+                                    <span className="w-9 font-mono font-semibold">{p.symbol}</span>
+                                    <span className="font-mono text-ink-faint">${mv.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+                                    <span className={`ml-auto font-mono ${pnlCls(pl)}`}>{pl >= 0 ? '+' : ''}${pl.toFixed(2)}</span>
                                   </div>
                                 )
                               })}
+                              <div className="flex items-center gap-2 text-[11px] text-ink-faint">
+                                <span className="w-9 font-mono">Cash</span>
+                                <span className="font-mono">${cash.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+                              </div>
+                              <div className="mt-0.5 text-[10px] text-ink-faint">Holdings + cash = equity above</div>
                             </div>
                           )}
                         </div>
                       )
                     }}
                   />
-                  <ReferenceLine y={equityChartData[0]?.equity} stroke="#475569" strokeDasharray="4 4" />
-                  <Line type="monotone" dataKey="equity" stroke="#3b82f6" strokeWidth={2} dot={false} activeDot={{ r: 5, fill: '#3b82f6' }} />
+                  <ReferenceLine y={baselineEquity} stroke="#475569" strokeDasharray="4 4" />
+                  <Line
+                    type="monotone"
+                    dataKey="equity"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={(props: any) => {
+                      const { cx, cy, payload, index } = props
+                      if (!payload?.isLive) return <g key={index} />
+                      return <circle key={index} cx={cx} cy={cy} r={5} fill="#3b82f6" stroke="#0d1117" strokeWidth={2} />
+                    }}
+                    activeDot={{ r: 5, fill: '#3b82f6' }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
