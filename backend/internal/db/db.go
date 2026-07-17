@@ -505,6 +505,8 @@ type Position struct {
 	CloseReason     string         `json:"close_reason,omitempty"`
 	CreatedAt       int64          `json:"created_at"`
 	UpdatedAt       int64          `json:"updated_at"`
+	// Joined from staged_orders (same id) — not a positions column.
+	StrategyName string `json:"strategy_name,omitempty"`
 }
 
 // TradingLimits mirrors the trading_limits table (one row per calendar day).
@@ -535,24 +537,26 @@ func (d *DB) OpenPosition(p *Position) error {
 // GetPosition fetches a single position by ID.
 func (d *DB) GetPosition(id string) (*Position, error) {
 	row := d.QueryRow(`
-		SELECT id, symbol, direction, quantity, entry_price, entry_time, confidence,
-		       COALESCE(alpaca_order_id,''), status,
-		       exit_price, exit_time, realized_pnl,
-		       stop_loss_price, take_profit_price, COALESCE(close_reason,''),
-		       created_at, updated_at
-		FROM positions WHERE id = ?`, id)
+		SELECT p.id, p.symbol, p.direction, p.quantity, p.entry_price, p.entry_time, p.confidence,
+		       COALESCE(p.alpaca_order_id,''), p.status,
+		       p.exit_price, p.exit_time, p.realized_pnl,
+		       p.stop_loss_price, p.take_profit_price, COALESCE(p.close_reason,''),
+		       p.created_at, p.updated_at, COALESCE(so.strategy_name,'')
+		FROM positions p LEFT JOIN staged_orders so ON so.id = p.id
+		WHERE p.id = ?`, id)
 	return scanPosition(row)
 }
 
 // ListOpenPositions returns all positions with status OPEN.
 func (d *DB) ListOpenPositions() ([]*Position, error) {
 	rows, err := d.Query(`
-		SELECT id, symbol, direction, quantity, entry_price, entry_time, confidence,
-		       COALESCE(alpaca_order_id,''), status,
-		       exit_price, exit_time, realized_pnl,
-		       stop_loss_price, take_profit_price, COALESCE(close_reason,''),
-		       created_at, updated_at
-		FROM positions WHERE status = 'OPEN' ORDER BY entry_time DESC`)
+		SELECT p.id, p.symbol, p.direction, p.quantity, p.entry_price, p.entry_time, p.confidence,
+		       COALESCE(p.alpaca_order_id,''), p.status,
+		       p.exit_price, p.exit_time, p.realized_pnl,
+		       p.stop_loss_price, p.take_profit_price, COALESCE(p.close_reason,''),
+		       p.created_at, p.updated_at, COALESCE(so.strategy_name,'')
+		FROM positions p LEFT JOIN staged_orders so ON so.id = p.id
+		WHERE p.status = 'OPEN' ORDER BY p.entry_time DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -571,12 +575,13 @@ func (d *DB) ListOpenPositions() ([]*Position, error) {
 // GetOpenPositionBySymbol returns the most recent OPEN position for a given symbol.
 func (d *DB) GetOpenPositionBySymbol(symbol string) (*Position, error) {
 	row := d.QueryRow(`
-		SELECT id, symbol, direction, quantity, entry_price, entry_time, confidence,
-		       COALESCE(alpaca_order_id,''), status,
-		       exit_price, exit_time, realized_pnl,
-		       stop_loss_price, take_profit_price, COALESCE(close_reason,''),
-		       created_at, updated_at
-		FROM positions WHERE status = 'OPEN' AND symbol = ? ORDER BY entry_time DESC LIMIT 1`, symbol)
+		SELECT p.id, p.symbol, p.direction, p.quantity, p.entry_price, p.entry_time, p.confidence,
+		       COALESCE(p.alpaca_order_id,''), p.status,
+		       p.exit_price, p.exit_time, p.realized_pnl,
+		       p.stop_loss_price, p.take_profit_price, COALESCE(p.close_reason,''),
+		       p.created_at, p.updated_at, COALESCE(so.strategy_name,'')
+		FROM positions p LEFT JOIN staged_orders so ON so.id = p.id
+		WHERE p.status = 'OPEN' AND p.symbol = ? ORDER BY p.entry_time DESC LIMIT 1`, symbol)
 	return scanPosition(row)
 }
 
@@ -621,12 +626,13 @@ func (d *DB) ResetToRetry(id string) error {
 // ListAllPositions returns all positions (OPEN + CLOSED) ordered by entry_time DESC.
 func (d *DB) ListAllPositions() ([]*Position, error) {
 	rows, err := d.Query(`
-		SELECT id, symbol, direction, quantity, entry_price, entry_time, confidence,
-		       COALESCE(alpaca_order_id,''), status,
-		       exit_price, exit_time, realized_pnl,
-		       stop_loss_price, take_profit_price, COALESCE(close_reason,''),
-		       created_at, updated_at
-		FROM positions ORDER BY entry_time DESC`)
+		SELECT p.id, p.symbol, p.direction, p.quantity, p.entry_price, p.entry_time, p.confidence,
+		       COALESCE(p.alpaca_order_id,''), p.status,
+		       p.exit_price, p.exit_time, p.realized_pnl,
+		       p.stop_loss_price, p.take_profit_price, COALESCE(p.close_reason,''),
+		       p.created_at, p.updated_at, COALESCE(so.strategy_name,'')
+		FROM positions p LEFT JOIN staged_orders so ON so.id = p.id
+		ORDER BY p.entry_time DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -719,7 +725,7 @@ func scanPosition(s scanner) (*Position, error) {
 		&p.AlpacaOrderID, &status,
 		&p.ExitPrice, &p.ExitTime, &p.RealizedPnl,
 		&p.StopLossPrice, &p.TakeProfitPrice, &p.CloseReason,
-		&p.CreatedAt, &p.UpdatedAt,
+		&p.CreatedAt, &p.UpdatedAt, &p.StrategyName,
 	)
 	if err != nil {
 		return nil, err

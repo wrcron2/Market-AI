@@ -27,11 +27,13 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "backtest_resu
 
 def run_strategy(strategy_name: str, symbols: list[str] | None = None) -> dict:
     from backtest.runner import BacktestRunner
-    from backtest.report import GATE_MIN_TRADES, GATE_MIN_WIN_RATE, GATE_MIN_SHARPE
+    from backtest.report import (
+        GATE_MIN_TRADES, GATE_MIN_SHARPE, GATE_OUT_OF_SAMPLE_RATIO,
+    )
 
     print(f"\n🔍 Running backtest: {strategy_name}")
-    print(f"   Symbols: {len(symbols) if symbols else 'default (100)'}")
-    print(f"   Gate: ≥{GATE_MIN_TRADES} trades, ≥{GATE_MIN_WIN_RATE:.0%} win rate, Sharpe ≥{GATE_MIN_SHARPE}\n")
+    print(f"   Symbols: {len(symbols) if symbols else 'default (24-ETF universe / 5-ETF for dual_momentum)'}")
+    print(f"   Gate: ≥{GATE_MIN_TRADES} trades, Sharpe ≥{GATE_MIN_SHARPE}, OOS ≥{GATE_OUT_OF_SAMPLE_RATIO:.0%} of in-sample\n")
 
     start = time.time()
     runner = BacktestRunner(strategy_name, symbols)
@@ -56,6 +58,8 @@ def run_strategy(strategy_name: str, symbols: list[str] | None = None) -> dict:
         "total_trades":       result.total_trades,
         "win_rate":           round(result.win_rate, 4),
         "avg_return_pct":     round(result.avg_return_pct, 4),
+        "profit_factor":      round(result.profit_factor, 4),
+        "boundary_date":      result.boundary_date,
         "max_drawdown_pct":   round(result.max_drawdown_pct, 4),
         "sharpe_ratio":       round(result.sharpe_ratio, 4),
         "in_sample_sharpe":   round(result.in_sample_sharpe, 4),

@@ -149,8 +149,12 @@ class PositionMonitorAgent:
 
         # ── Layer 1b: SMA20 exit for dual_momentum positions ──────────────────
         # dual_momentum has no fixed take_profit — it rides the trend until SMA20 cross.
+        # strategy_name is joined from staged_orders; empty means a legacy record
+        # from before that join existed. dual_momentum is the only strategy
+        # deployed since 2026-06-26, so legacy positions get the trend exit too.
+        # Remove the empty-string fallback when a second strategy ships.
         strategy = db_record.get("strategy_name", "") if db_record else ""
-        if strategy == "dual_momentum":
+        if strategy in ("dual_momentum", ""):
             try:
                 sma20 = self._fetch_sma20(symbol)
                 if sma20 and current < sma20:

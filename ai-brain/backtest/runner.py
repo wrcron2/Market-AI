@@ -2,17 +2,29 @@
 runner.py — Backtest Runner
 ============================
 Downloads 5+ years of historical data via yfinance, applies strategy rules
-deterministically, simulates trades with ATR-based stops and take-profits,
-and returns a BacktestResult with in/out-of-sample split.
+deterministically, simulates trades, and returns a BacktestResult with a
+calendar-date in/out-of-sample split (60/40 of the traded date range).
 
-Walk-forward split: 60% in-sample, 40% out-of-sample (time-ordered, never shuffled).
-Slippage: fill at close + ATR × 0.1 for BUY, close - ATR × 0.1 for SELL.
-Commission: $0.005/share (Alpaca paper) or $0.0035/share (IBKR live).
+Honesty model:
+- Signals are evaluated on bar close; entries fill at close ± ATR × 0.1
+  (adverse slippage).
+- Commission is charged on BOTH legs: $0.005/share/leg (Alpaca paper).
+- Stop-loss exits fill THROUGH the stop by ATR × 0.1 (gap-adverse);
+  take-profits fill at the limit price. SMA20-cross and end-of-data exits
+  fill at close ± slippage (adverse).
+- Real VIX (^VIX daily close) is merged into every symbol's frame, so the
+  mean_reversion VIX filter sees actual history — not a constant.
+- Per-position sizing caps at 10% of account to match the live
+  portfolio_limits enforcement.
+
+Known limitation (documented, not hidden): symbols simulate independently —
+one open trade per symbol, each sized against the full account. Portfolio
+concurrency (10-position cap, shared cash) is not modeled here; it is
+enforced live by agents/portfolio_limits.py.
 """
 from __future__ import annotations
 
 import os
-import time
 from typing import List
 
 import pandas as pd
@@ -30,14 +42,10 @@ log = structlog.get_logger(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 LOOKBACK_YEARS    = 5
-STOP_LOSS_PCT     = float(os.getenv("STOP_LOSS_PCT",    "5.0"))
-TAKE_PROFIT_PCT   = float(os.getenv("TAKE_PROFIT_PCT",  "15.0"))
-MAX_HOLD_DAYS_MOMENTUM   = 10   # let momentum winners run longer
-MAX_HOLD_DAYS_REVERSION  = 7    # mean reversion plays out in a week
 ACCOUNT_SIZE      = float(os.getenv("SIM_INITIAL_CASH", "100000"))
-COMMISSION        = 0.005   # $0.005/share
-SLIPPAGE_ATR_MULT = 0.1     # fill at close ± ATR × 0.1
-IN_SAMPLE_RATIO   = 0.60    # 60% in-sample, 40% out-of-sample
+COMMISSION        = 0.005   # $/share PER LEG — charged on entry and exit
+SLIPPAGE_ATR_MULT = 0.1     # fills move ATR × 0.1 against the trader
+IN_SAMPLE_RATIO   = 0.60    # 60% in-sample, 40% out-of-sample (by calendar)
 MIN_DATA_DAYS     = 252 * 2 # minimum 2 years of data per symbol
 
 
@@ -60,11 +68,11 @@ class BacktestRunner:
         """Run full backtest and return results."""
         log.info("backtest.start", strategy=self.strategy_name, symbols=len(self.symbols))
 
+        period = f"{LOOKBACK_YEARS + 1}y"
+        vix    = self._download_vix(period)
+
         all_trades: list[Trade] = []
         symbols_with_data = 0
-        split_trade_idx = 0  # will track in-sample / out-of-sample boundary
-
-        period = f"{LOOKBACK_YEARS + 1}y"
 
         for i, symbol in enumerate(self.symbols):
             if i % 50 == 0:
@@ -75,7 +83,7 @@ class BacktestRunner:
                 if df is None or len(df) < MIN_DATA_DAYS:
                     continue
 
-                df = compute_all(df)
+                df = compute_all(df, vix=vix)
                 df = df.dropna()
                 if len(df) < MIN_DATA_DAYS:
                     continue
@@ -87,18 +95,24 @@ class BacktestRunner:
             except Exception as exc:
                 log.debug("backtest.symbol_error", symbol=symbol, error=str(exc))
 
-        # Sort trades chronologically and find in/out split
-        all_trades.sort(key=lambda t: t.entry_date)
-        split_trade_idx = int(len(all_trades) * IN_SAMPLE_RATIO)
+        # Calendar-date in/out-of-sample boundary over the traded range
+        if all_trades:
+            d0 = pd.to_datetime(min(t.entry_date for t in all_trades))
+            d1 = pd.to_datetime(max(t.entry_date for t in all_trades))
+            boundary = (d0 + (d1 - d0) * IN_SAMPLE_RATIO).strftime("%Y-%m-%d")
+        else:
+            boundary = ""
 
         log.info("backtest.complete", strategy=self.strategy_name,
-                 symbols_with_data=symbols_with_data, total_trades=len(all_trades))
+                 symbols_with_data=symbols_with_data, total_trades=len(all_trades),
+                 boundary=boundary)
 
         return compute_report(
             strategy=self.strategy_name,
             trades=all_trades,
             symbols_tested=symbols_with_data,
-            split_idx=split_trade_idx,
+            boundary_date=boundary,
+            base_equity=ACCOUNT_SIZE,
         )
 
     def _download(self, symbol: str, period: str) -> pd.DataFrame | None:
@@ -117,6 +131,14 @@ class BacktestRunner:
         except Exception:
             return None
 
+    def _download_vix(self, period: str) -> pd.Series | None:
+        """Download real ^VIX closes for the mean_reversion volatility filter."""
+        df = self._download("^VIX", period)
+        if df is None or "Close" not in df:
+            log.warning("backtest.vix_unavailable", note="falling back to neutral 18.5")
+            return None
+        return df["Close"]
+
     def _simulate(self, df: pd.DataFrame, symbol: str) -> list[Trade]:
         """Simulate trades on one symbol's full price history."""
         trades: list[Trade] = []
@@ -127,15 +149,15 @@ class BacktestRunner:
         stop_loss   = 0.0
         take_profit = 0.0
         quantity    = 0
-        days_held   = 0
 
         for i in range(20, len(df)):  # start after warmup period
             row  = df.iloc[i]
             date = str(df.index[i])[:10]
 
             if in_trade:
-                days_held += 1
-                close = float(row["Close"])
+                close   = float(row["Close"])
+                atr_now = float(row.get("atr", 0))
+                slip    = atr_now * SLIPPAGE_ATR_MULT
 
                 exit_reason = None
                 exit_price  = close
@@ -143,41 +165,36 @@ class BacktestRunner:
                 if direction == "BUY":
                     if close <= stop_loss:
                         exit_reason = "stop_loss"
-                        exit_price  = stop_loss
+                        exit_price  = stop_loss - slip        # gap through the stop
                     elif take_profit < 999 and close >= take_profit:
                         exit_reason = "take_profit"
-                        exit_price  = take_profit
+                        exit_price  = take_profit             # limit order fills at limit
                     elif take_profit >= 999:
                         # dual_momentum: exit when price crosses below SMA20
                         sma20 = float(row.get("sma_20", close))
                         if close < sma20:
                             exit_reason = "sma20_cross"
-                            exit_price  = close
+                            exit_price  = close - slip
                 elif direction == "SELL":
                     if close >= stop_loss:
                         exit_reason = "stop_loss"
-                        exit_price  = stop_loss
+                        exit_price  = stop_loss + slip
                     elif close <= take_profit:
                         exit_reason = "take_profit"
                         exit_price  = take_profit
 
-                # No max_hold exit for any strategy
-                if False and days_held >= 999:  # disabled
-                    exit_reason = "max_hold"
-
                 if exit_reason:
-                    commission = quantity * COMMISSION
-                    trade = Trade(
+                    trades.append(Trade(
                         symbol=symbol,
                         direction=direction,
                         entry_price=entry_price,
-                        exit_price=exit_price - commission / quantity,
+                        exit_price=exit_price,
                         quantity=quantity,
                         entry_date=entry_date,
                         exit_date=date,
                         exit_reason=exit_reason,
-                    )
-                    trades.append(trade)
+                        commission=quantity * COMMISSION * 2,  # both legs
+                    ))
                     in_trade = False
 
             else:
@@ -185,9 +202,9 @@ class BacktestRunner:
                 if signal is None:
                     continue
 
-                atr_val    = float(row.get("atr", 0))
-                slip       = atr_val * SLIPPAGE_ATR_MULT
-                close      = float(row["Close"])
+                atr_val = float(row.get("atr", 0))
+                slip    = atr_val * SLIPPAGE_ATR_MULT
+                close   = float(row["Close"])
 
                 if signal.direction == "BUY":
                     fill = close + slip
@@ -201,23 +218,24 @@ class BacktestRunner:
                 stop_loss   = signal.stop_loss
                 take_profit = signal.take_profit
                 quantity    = signal.quantity
-                days_held   = 0
 
         # Close any open position at end of data
         if in_trade and len(df) > 0:
             last_row  = df.iloc[-1]
             last_date = str(df.index[-1])[:10]
-            trade = Trade(
+            close     = float(last_row["Close"])
+            slip      = float(last_row.get("atr", 0)) * SLIPPAGE_ATR_MULT
+            trades.append(Trade(
                 symbol=symbol,
                 direction=direction,
                 entry_price=entry_price,
-                exit_price=float(last_row["Close"]),
+                exit_price=close - slip if direction == "BUY" else close + slip,
                 quantity=quantity,
                 entry_date=entry_date,
                 exit_date=last_date,
                 exit_reason="end_of_data",
-            )
-            trades.append(trade)
+                commission=quantity * COMMISSION * 2,
+            ))
 
         return trades
 

@@ -33,11 +33,24 @@ Production execution venue: **Alpaca** (paper now, live at Phase 3).
 Alpaca REST API handles all order execution via `ai-brain/execution/alpaca_executor.py`.
 
 ## Before Going Live (Phase 3 Gate)
-Run backtest-expert methodology on both strategies before switching paper → live:
-- `momentum_breakout`: MACD histogram expanding + volume > 1.5x SMA20 + price above SMA20
-- `mean_reversion`: RSI < 25 or > 75 + Bollinger %B extreme + volume contracting
-Requirements: 5+ years data, 100+ trades, out-of-sample ≥ 50% of in-sample performance.
+Gate requirements (do NOT relax): 5+ years data, 100+ trades, out-of-sample ≥ 50%
+of in-sample performance, Sharpe ≥ 0.5 on daily-equity returns, max drawdown ≤ 25%.
+Engine: `ai-brain/backtest/` — real ^VIX merged, both-leg commissions, adverse
+slippage, calendar-date 60/40 IS/OOS split. Run: `python3 -m backtest run --strategy all`
 See `backtest-expert` SKILL.md: `tradermonty/claude-trading-skills`
 
-STATUS: Backtest infrastructure NOT yet built. This is the #1 P0 priority before live capital.
-Architecture: `ai-brain/backtest/` — see ADR-001 in Notion Architecture Decision Records.
+STATUS (2026-07-17, honest engine):
+- momentum_breakout: FAILED (Sharpe -0.67) — retired 2026-06-26, stays retired
+- mean_reversion: PASSES gate (Sharpe 1.35, OOS 52% of IS, PF 1.90) — first pass with
+  the real-VIX filter active; provisional, paper-validate before any deploy decision
+- dual_momentum (LIVE strategy): FAILED honest gate (Sharpe 0.36 < 0.5). The June 26
+  "pass" (0.79) was inflated by per-trade annualization assuming 5-day holds.
+  Paper trading OK; Phase 3 live capital is BLOCKED until a strategy clears this gate.
+
+## Portfolio Hard Limits (enforced in code since 2026-07-17)
+`ai-brain/agents/portfolio_limits.py`, wired after risk_agent in the orchestrator:
+10% max single position, 30% max sector, 10 max open positions, -15% drawdown suspend.
+Prompt-level caps are ADVISORY ONLY — the 2026-07-09 QQQ incident (LLM ignored the
+8% prompt cap, produced an 80% position) is why enforcement is deterministic code.
+Position strategy_name is joined from staged_orders (same id) so the position
+monitor's SMA20 trend exit works; empty strategy_name = legacy dual_momentum.

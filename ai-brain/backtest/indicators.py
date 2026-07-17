@@ -70,11 +70,14 @@ def sma(close: pd.Series, window: int = 20) -> pd.Series:
     return close.rolling(window).mean()
 
 
-def compute_all(df: pd.DataFrame) -> pd.DataFrame:
+def compute_all(df: pd.DataFrame, vix: pd.Series | None = None) -> pd.DataFrame:
     """
     Add all indicator columns to a OHLCV DataFrame.
     Input columns: Open, High, Low, Close, Volume
     Returns df with added columns: rsi, macd_hist, bb_pct_b, atr, vol_ratio, sma_20
+
+    vix: real ^VIX daily closes aligned by date. Falls back to a neutral 18.5
+    only when the series is unavailable (offline run).
     """
     df = df.copy()
     df["rsi"]       = rsi(df["Close"])
@@ -87,5 +90,8 @@ def compute_all(df: pd.DataFrame) -> pd.DataFrame:
     df["sma_50"]    = sma(df["Close"], 50)
     df["atr_pct"]   = df["atr"] / df["Close"] * 100
     df["high_52w"]  = df["Close"].rolling(252).max()
-    df["vix"]       = 18.5  # neutral placeholder — live uses real VIX
+    if vix is not None:
+        df["vix"] = vix.reindex(df.index).ffill().fillna(18.5)
+    else:
+        df["vix"] = 18.5
     return df
