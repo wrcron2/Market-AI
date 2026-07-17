@@ -265,13 +265,24 @@ class PositionMonitorAgent:
         try:
             import yfinance as yf
             import pandas as pd
-            df = yf.download(symbol, period="30d", interval="1d",
-                             auto_adjust=True, progress=False)
-            if df.empty or len(df) < 20:
+            df = yf.download(symbol, period="60d", interval="1d",
+                             auto_adjust=True, progress=False, threads=False)
+            if df is None or df.empty:
+                log.warning("position_monitor.sma20_no_data", symbol=symbol)
                 return None
-            close = df["Close"].astype(float)
+            # yfinance returns MultiIndex columns for some pandas/yf combos —
+            # flatten before selecting, or df["Close"] is a DataFrame and
+            # float() raises, silently disabling the trend exit.
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+            close = df["Close"].astype(float).dropna()
+            if len(close) < 20:
+                log.warning("position_monitor.sma20_insufficient_data",
+                            symbol=symbol, rows=len(close))
+                return None
             return float(close.rolling(20).mean().iloc[-1])
-        except Exception:
+        except Exception as exc:
+            log.warning("position_monitor.sma20_fetch_error", symbol=symbol, error=str(exc))
             return None
 
     # ── Execute sell ───────────────────────────────────────────────────────────
