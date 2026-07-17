@@ -266,7 +266,10 @@ Output ONLY raw JSON starting with { — no markdown, no explanation:
             if float(data.get("initial_confidence", 0)) == 0.0:
                 log.info("signal_agent.no_trade", symbol=symbol, reason="confidence=0.0 (model did not calibrate)")
                 return None
-            data.setdefault("strategy_name", self.strategy_name)
+            # The configured strategy stamps the label — never trust the LLM's
+            # free-text strategy_name (live positions got labeled "momentum" /
+            # "mean_reversion" on dual_momentum trades, dodging the trend exit).
+            data["strategy_name"] = self.strategy_name
             signal = CandidateSignal(**data)
             log.info(
                 "signal_agent.generated",
