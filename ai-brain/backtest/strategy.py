@@ -76,7 +76,7 @@ def momentum_breakout(row: pd.Series, account_size: float = 100_000) -> Signal |
     stop_dist    = atr_val * 2.5  # wider stop — give trades more room
     dollar_risk  = account_size * 0.01
     quantity     = int(dollar_risk / stop_dist) if stop_dist > 0.01 else 0
-    quantity     = min(quantity, 500, int(account_size * 0.08 / close))
+    quantity     = min(quantity, 500, int(account_size * 0.10 / close))  # 10% cap — matches live portfolio_limits
 
     if quantity <= 0:
         return None
@@ -154,7 +154,7 @@ def mean_reversion(row: pd.Series, account_size: float = 100_000) -> Signal | No
     stop_dist    = atr_val * 2.0
     dollar_risk  = account_size * 0.01
     quantity     = int(dollar_risk / stop_dist) if stop_dist > 0.01 else 0
-    quantity     = min(quantity, 500, int(account_size * 0.08 / close))
+    quantity     = min(quantity, 500, int(account_size * 0.10 / close))  # 10% cap — matches live portfolio_limits
 
     if quantity <= 0:
         return None

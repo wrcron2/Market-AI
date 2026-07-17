@@ -26,6 +26,7 @@ import structlog
 from langgraph.graph import END, StateGraph
 
 from .debate_agent import DebateAgent
+from .portfolio_limits import PortfolioLimits
 from .risk_agent import RiskAgent
 from .router import Complexity, LLMRouter
 from .signal_agent import CandidateSignal, SignalAgent
@@ -63,6 +64,8 @@ class Orchestrator:
         self._alpaca        = alpaca
         self._position_store = position_store
         self._notifier      = notifier
+        # Deterministic hard caps — prompts advise, this enforces.
+        self._limits        = PortfolioLimits(alpaca) if alpaca is not None else None
 
         backend_host = os.getenv("BRAIN_HOST", "127.0.0.1")
         backend_port = os.getenv("GO_SERVER_PORT", "8080")
@@ -173,6 +176,29 @@ class Orchestrator:
             return state
         risk = self.risk_agent.assess(state["signal"], state["debate_result"], state["market_snapshot"])
         sym = state["signal"].symbol
+
+        # Deterministic portfolio caps — runs after the LLM risk agent and can
+        # only shrink or block. An LLM ignoring its prompt cannot bypass this.
+        if not risk.is_blocked and self._limits is not None:
+            snapshot_close = float(state["market_snapshot"].get("ohlcv", {}).get("close", 0) or 0)
+            ref_price = state["signal"].limit_price or snapshot_close
+            verdict = self._limits.enforce(
+                symbol=sym,
+                direction=state["debate_result"].consensus_direction,
+                quantity=risk.adjusted_quantity,
+                price=ref_price,
+            )
+            if verdict.blocked:
+                risk = risk.model_copy(update={
+                    "is_blocked": True,
+                    "block_reason": verdict.reason,
+                })
+            elif verdict.adjusted_quantity < risk.adjusted_quantity:
+                risk = risk.model_copy(update={
+                    "adjusted_quantity": verdict.adjusted_quantity,
+                    "risk_notes": " | ".join(x for x in (risk.risk_notes, verdict.reason) if x),
+                })
+
         if risk.is_blocked:
             self._emit(sym, "risk", "blocked", f"blocked — {risk.block_reason}")
         else:

@@ -58,7 +58,7 @@ def dual_momentum(row: pd.Series, account_size: float = 100_000) -> TrendSignal 
     stop_dist   = atr_val * 2.0
     dollar_risk = account_size * 0.01
     quantity    = int(dollar_risk / stop_dist) if stop_dist > 0.01 else 0
-    quantity    = min(quantity, 500, int(account_size * 0.20 / close))  # max 20% per ETF
+    quantity    = min(quantity, 500, int(account_size * 0.10 / close))  # 10% cap — matches live portfolio_limits
 
     if quantity <= 0:
         return None
