@@ -841,6 +841,24 @@ func (d *DB) ListResearchCandidates(limit int) ([]*ScoutRepo, error) {
 	return out, nil
 }
 
+// GetResearchCandidate returns a single repo eligible for research (status='good',
+// not yet researched), or found=false if it doesn't qualify.
+func (d *DB) GetResearchCandidate(id int64) (repo *ScoutRepo, found bool, err error) {
+	r := &ScoutRepo{}
+	err = d.QueryRow(`SELECT id, full_name, url, COALESCE(description,''), stars,
+	                          COALESCE(language,''), COALESCE(topics,'[]')
+	                   FROM github_repo_scout
+	                   WHERE id = ? AND status = 'good' AND researched_at IS NULL`, id).
+		Scan(&r.ID, &r.FullName, &r.URL, &r.Description, &r.Stars, &r.Language, &r.Topics)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return r, true, nil
+}
+
 // SaveResearchReport stores the markdown report (and optional Notion URL) and
 // flips the repo to researched.
 func (d *DB) SaveResearchReport(id int64, report, notionURL string) error {

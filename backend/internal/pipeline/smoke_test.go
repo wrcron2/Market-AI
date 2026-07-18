@@ -59,7 +59,7 @@ func TestScoutSmoke(t *testing.T) {
 
 	// Research pass: only if the scout marked something good.
 	if goodRepos, _ := database.ListRepos("good"); len(goodRepos) > 0 {
-		h.runResearch(model)
+		h.runResearchBatch(model)
 		logBytes, _ = os.ReadFile(filepath.Join(root, "logs", "scout.log"))
 		logText = string(logBytes)
 		t.Logf("scout.log after research:\n%s", logText)

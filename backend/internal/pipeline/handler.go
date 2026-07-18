@@ -150,7 +150,10 @@ func (h *Handler) RunResearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req struct{ Model string `json:"model"` }
+	var req struct {
+		Model  string `json:"model"`
+		RepoID int64  `json:"repo_id"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
 	h.mu.Lock()
@@ -170,7 +173,11 @@ func (h *Handler) RunResearch(w http.ResponseWriter, r *http.Request) {
 			h.lastResearchRun = &now
 			h.mu.Unlock()
 		}()
-		h.runResearch(req.Model)
+		if req.RepoID != 0 {
+			h.runResearchOne(req.Model, req.RepoID)
+		} else {
+			h.runResearchBatch(req.Model)
+		}
 	}()
 
 	writeJSON(w, map[string]any{"started": true, "model": req.Model})
@@ -517,7 +524,8 @@ Name the specific phase or component it could inform or replace.
 ## Recommendation
 One of: **Adopt pattern** / **Reference only** / **Not relevant** — with one sentence why.`
 
-func (h *Handler) runResearch(model string) {
+// runResearchBatch researches up to researchPerRun candidates, highest stars first.
+func (h *Handler) runResearchBatch(model string) {
 	log := h.openLog()
 	defer log.close()
 
@@ -539,7 +547,34 @@ func (h *Handler) runResearch(model string) {
 		return
 	}
 	log.printf("Found %d repo(s) to research (max %d per run)", len(candidates), researchPerRun)
+	h.researchCandidates(log, model, candidates)
+}
 
+// runResearchOne researches a single repo, triggered from a table row.
+func (h *Handler) runResearchOne(model string, repoID int64) {
+	log := h.openLog()
+	defer log.close()
+
+	log.printf("\n=== Research Agent — single-repo run triggered at %s (model: %s) ===", time.Now().Format(time.RFC3339), model)
+
+	if err := validateModel(model); err != nil {
+		log.printf("=== Research Agent FAILED: %v ===", err)
+		return
+	}
+
+	repo, found, err := h.db.GetResearchCandidate(repoID)
+	if err != nil {
+		log.printf("=== Research Agent FAILED: db error: %v ===", err)
+		return
+	}
+	if !found {
+		log.printf("=== Research Agent FAILED: repo %d is not a pending 'good' candidate ===", repoID)
+		return
+	}
+	h.researchCandidates(log, model, []*db.ScoutRepo{repo})
+}
+
+func (h *Handler) researchCandidates(log *agentLog, model string, candidates []*db.ScoutRepo) {
 	notionReady := os.Getenv("NOTION_API_KEY") != "" && os.Getenv("NOTION_PARENT_PAGE_ID") != ""
 	if !notionReady {
 		log.printf("Notion export off (set NOTION_API_KEY + NOTION_PARENT_PAGE_ID to enable) — reports are saved to the dashboard")

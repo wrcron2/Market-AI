@@ -92,6 +92,7 @@ export function PipelinePanel() {
   const [researchModel, setResearchModel] = useState<AgentModel>('claude-sonnet')
   const [report, setReport] = useState<{ fullName: string; markdown: string } | null>(null)
   const [reportLoading, setReportLoading] = useState(false)
+  const [researchingIds, setResearchingIds] = useState<Set<number>>(new Set())
   const logRef = useRef<HTMLPreElement>(null)
 
   const loadRepos = useCallback(async () => {
@@ -149,6 +150,19 @@ export function PipelinePanel() {
     return () => clearInterval(iv)
   }, [loadRepos, loadStatus, loadLogs])
 
+  // Clear the "researching" flag on a row as soon as its report shows up
+  // (or it moves off 'good', e.g. rejected on retry) via the next repo poll.
+  useEffect(() => {
+    setResearchingIds(prev => {
+      if (prev.size === 0) return prev
+      const next = new Set(prev)
+      for (const repo of repos) {
+        if (next.has(repo.id) && (repo.has_report || repo.status !== 'good')) next.delete(repo.id)
+      }
+      return next.size === prev.size ? prev : next
+    })
+  }, [repos])
+
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight
@@ -190,6 +204,24 @@ export function PipelinePanel() {
       setResearchLoading(false)
     }
   }
+
+  const researchOne = useCallback((repo: RepoRow) => {
+    setResearchingIds(prev => new Set(prev).add(repo.id))
+    fetch('/api/pipeline/run/research', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: researchModel, repo_id: repo.id }),
+    }).catch(() => {})
+    // Safety net in case the row never flips (e.g. repeated LLM failure) —
+    // the repos-effect above clears it earlier once a report lands.
+    setTimeout(() => {
+      setResearchingIds(prev => {
+        const next = new Set(prev)
+        next.delete(repo.id)
+        return next
+      })
+    }, 120_000)
+  }, [researchModel])
 
   const filteredRepos = filter === 'all' ? repos : repos.filter(r => r.status === filter)
 
@@ -456,12 +488,33 @@ export function PipelinePanel() {
                             <FileText size={11} /> View
                           </button>
                         ) : repo.status === 'good' ? (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            color: '#64748b', fontSize: 11, fontWeight: 600,
-                          }}>
-                            <Clock size={11} /> Pending research
-                          </span>
+                          researchingIds.has(repo.id) ? (
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 6,
+                              color: '#64748b', fontSize: 11, fontWeight: 600,
+                            }}>
+                              <RunningDot running color="#38bdf8" /> Researching…
+                            </span>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                              <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 4,
+                                color: '#64748b', fontSize: 11, fontWeight: 600,
+                              }}>
+                                <Clock size={11} /> Pending research
+                              </span>
+                              <button
+                                onClick={() => researchOne(repo)}
+                                style={{
+                                  background: '#082f49', color: '#38bdf8', border: '1px solid #38bdf840',
+                                  borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600,
+                                  cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
+                                }}
+                              >
+                                <Play size={11} /> Research
+                              </button>
+                            </span>
+                          )
                         ) : (
                           <span style={{ color: '#334155', fontSize: 12 }}>—</span>
                         )}
