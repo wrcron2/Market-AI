@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { GreenLightPanel } from './GreenLightPanel'
 import { SignalFeed, type FeedEvent } from './SignalFeed'
 import { PortfolioStats, type Stats } from './PortfolioStats'
@@ -43,9 +44,9 @@ const TAB_VALUES = Object.keys({
   signals: 0, portfolio: 0, reports: 0, alerts: 0, audit: 0, versions: 0, pipeline: 0, config: 0,
 } satisfies Record<Tab, number>) as Tab[]
 
-function initialTabFromUrl(): Tab {
-  const requested = new URLSearchParams(window.location.search).get('tab')
-  return (TAB_VALUES as string[]).includes(requested ?? '') ? (requested as Tab) : 'signals'
+function tabFromPath(pathname: string): Tab {
+  const segment = pathname.replace(/^\//, '')
+  return (TAB_VALUES as string[]).includes(segment) ? (segment as Tab) : 'signals'
 }
 
 export function Dashboard() {
@@ -53,7 +54,10 @@ export function Dashboard() {
   const { enabled: autoExec, toggle } = useAutoExecute()
   const { provider: llmProvider, changeProvider } = useLLMProvider()
   const { isOpen: marketOpen, minutesUntilClose: marketMinutes } = useMarketStatus()
-  const [activeTab, setActiveTab] = useState<Tab>(initialTabFromUrl)
+  const location = useLocation()
+  const navigate = useNavigate()
+  const activeTab = tabFromPath(location.pathname)
+  const setActiveTab = useCallback((tab: Tab) => navigate(`/${tab}`), [navigate])
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [askOpen, setAskOpen] = useState(true)
   const [pendingOrders, setPendingOrders] = useState<StagedOrder[]>([])
@@ -160,6 +164,14 @@ export function Dashboard() {
       },
     },
   })
+
+  // Canonicalize "/" and any unknown path to the matching tab route.
+  useEffect(() => {
+    const segment = location.pathname.replace(/^\//, '')
+    if (segment !== activeTab) {
+      navigate(`/${activeTab}`, { replace: true })
+    }
+  }, [location.pathname, activeTab, navigate])
 
   useEffect(() => {
     const loadPending = async () => {

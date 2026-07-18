@@ -1,5 +1,10 @@
+import { BrowserRouter } from 'react-router-dom'
 import { Dashboard } from './components/Dashboard'
 
 export default function App() {
-  return <Dashboard />
+  return (
+    <BrowserRouter>
+      <Dashboard />
+    </BrowserRouter>
+  )
 }
