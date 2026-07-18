@@ -53,6 +53,18 @@ When a specific component changed significantly, update its Notion page with:
 
 Keep it in plain English — the Notion pages are product/technical docs, not code comments.
 
+## Superseded content — archive it, don't just annotate it in place
+
+**The failure mode this section exists to prevent:** a page describes something that was true once. Real work supersedes it — a strategy is retired, a deployment approach is abandoned, a backtest number is proven wrong. The natural move is to add a warning banner ("⚠️ SUPERSEDED", "⚠️ NOT IMPLEMENTED") at the top and leave the page exactly where it is. **That is not enough.** The page still sits at the same visual weight as current truth — same place in the subpage list, same rank in search results, one click away for anyone (including a future Claude session) who lands on it without reading top-to-bottom first. A banner is necessary but not sufficient. This exact pattern caused a real incident: a corrected Sharpe ratio (0.79 → 0.356, after a measurement bug was fixed) kept living on 3 separate pages for weeks after the correction, because each page was annotated in isolation instead of the correction being propagated or the stale page archived.
+
+**The rule:**
+- **Whole page superseded** (a plan never implemented, a design concept never built, an approach abandoned) → move it into **🗄️ Archive** (`notion-move-pages`). Moving preserves the page and Notion's own edit history — nothing is deleted, and it is always reversible with another move. The banner stays on the page as context; the move is what actually removes it from the reader's default path.
+- **A specific fact inside an otherwise-current page is proven wrong** (a stat, a status, a "gate passed" claim) → correct it **in place** with a short dated note on what changed and why (e.g. "corrected 2026-07-18 — see Bug N"). Don't leave the wrong number sitting next to a note saying it's wrong — state the right one, and search for *other* pages repeating the same now-wrong fact before considering the correction done.
+- **Before either action**, if there's any doubt, duplicate the page (`notion-duplicate-page`) as a timestamped backup — cheap insurance on top of Notion's native page history.
+- **A sub-page of a superseded parent needs its own disclaimer.** A warning banner on the parent does not protect its children from being read standalone — search surfaces child pages directly, with no guarantee the reader ever saw the parent's banner first. Give each child a one-line flag, or make sure it moves with the parent.
+
+**Watch for this specifically when:** a trading strategy changes (the single biggest source so far), a deployment approach changes, or a backtest/validation result is corrected — these are the claims most likely to be repeated verbatim across multiple pages.
+
 ## Do NOT update Notion for
 
 - Minor refactors with no behaviour change
