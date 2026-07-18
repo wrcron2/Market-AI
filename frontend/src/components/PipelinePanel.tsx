@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { RefreshCw, Play, Terminal, ExternalLink, Star, Database, Trash2, FileText, X } from 'lucide-react'
+import { RefreshCw, Play, Terminal, ExternalLink, Star, Database, Trash2, FileText, Clock, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
 interface RepoRow {
@@ -455,6 +455,13 @@ export function PipelinePanel() {
                           >
                             <FileText size={11} /> View
                           </button>
+                        ) : repo.status === 'good' ? (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            color: '#64748b', fontSize: 11, fontWeight: 600,
+                          }}>
+                            <Clock size={11} /> Pending research
+                          </span>
                         ) : (
                           <span style={{ color: '#334155', fontSize: 12 }}>—</span>
                         )}
