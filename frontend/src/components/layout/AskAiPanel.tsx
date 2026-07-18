@@ -3,12 +3,13 @@ import { Sparkles, ChevronRight, ArrowUp } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
 type Role = 'Chief PM' | 'Engineering' | 'Risk Analyst' | 'Strategy Advisor'
-type AiModel = 'claude-sonnet' | 'deepseek-r1' | 'qwen3'
+type AiModel = 'claude-sonnet' | 'deepseek-r1' | 'qwen3' | 'glm-5.2'
 
 const MODEL_LABELS: Record<AiModel, { label: string; desc: string }> = {
   'claude-sonnet': { label: 'Claude Sonnet', desc: 'Cloud · fast · best for strategy & PM' },
   'deepseek-r1': { label: 'DeepSeek R1', desc: 'Groq cloud · Llama 3.3 70B' },
   'qwen3': { label: 'Qwen3', desc: 'Groq cloud · Llama 3.3 70B' },
+  'glm-5.2': { label: 'GLM-5.2', desc: 'NVIDIA cloud · agentic/coding/reasoning' },
 }
 
 interface Message {

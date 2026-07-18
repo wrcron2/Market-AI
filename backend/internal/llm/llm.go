@@ -1,7 +1,7 @@
 // Package llm provides direct HTTP access to the LLM providers the dashboard
-// supports (Anthropic API, Groq cloud, local Ollama). It mirrors the routing
-// the Ask AI panel uses so any feature can offer the same model dropdown —
-// cloud and local — without shelling out to external CLIs.
+// supports (Anthropic API, Groq cloud, NVIDIA-hosted GLM, local Ollama). It
+// mirrors the routing the Ask AI panel uses so any feature can offer the same
+// model dropdown — cloud and local — without shelling out to external CLIs.
 package llm
 
 import (
@@ -35,11 +35,12 @@ const (
 	ModelQwenGroq        = "qwen3"             // Groq cloud, Ollama fallback
 	ModelDeepSeekLocal   = "deepseek-r1-local" // Ollama on host
 	ModelQwenLocal       = "qwen3-local"       // Ollama on host
+	ModelGLM             = "glm-5.2"           // NVIDIA-hosted z-ai/glm-5.2, OpenAI-compatible API
 )
 
 // KnownModels lists every model value Call accepts, for error messages.
 var KnownModels = []string{
-	ModelClaudeSonnet, ModelDeepSeekGroq, ModelQwenGroq, ModelDeepSeekLocal, ModelQwenLocal,
+	ModelClaudeSonnet, ModelDeepSeekGroq, ModelQwenGroq, ModelDeepSeekLocal, ModelQwenLocal, ModelGLM,
 }
 
 // Call sends system+user to the provider behind uiModel and returns the reply
@@ -73,6 +74,14 @@ func (c *Client) Call(uiModel, system, user string) (reply, provider string, err
 	case ModelQwenLocal:
 		reply, err = c.callOllama("qwen3:4b", system, user)
 		return reply, "Ollama qwen3:4b", err
+
+	case ModelGLM:
+		key := os.Getenv("NVIDIA_API_KEY")
+		if key == "" {
+			return "", "", fmt.Errorf("NVIDIA_API_KEY not set — configure it in .env to use GLM-5.2")
+		}
+		reply, err = c.callNvidia(key, "z-ai/glm-5.2", system, user)
+		return reply, "NVIDIA z-ai/glm-5.2", err
 
 	default:
 		return "", "", fmt.Errorf("unknown model %q (expected one of: %s)", uiModel, strings.Join(KnownModels, ", "))
@@ -178,6 +187,50 @@ func (c *Client) callGroq(apiKey, model, system, user string) (string, error) {
 	}
 	if len(result.Choices) == 0 {
 		return "", fmt.Errorf("empty groq response")
+	}
+	return result.Choices[0].Message.Content, nil
+}
+
+// callNvidia hits NVIDIA's OpenAI-compatible chat completions endpoint
+// (integrate.api.nvidia.com) — same request/response shape as Groq.
+func (c *Client) callNvidia(apiKey, model, system, user string) (string, error) {
+	body := map[string]any{
+		"model":      model,
+		"max_tokens": 4096,
+		"messages": []map[string]string{
+			{"role": "system", "content": system},
+			{"role": "user", "content": user},
+		},
+	}
+	b, _ := json.Marshal(body)
+
+	req, _ := http.NewRequest("POST", "https://integrate.api.nvidia.com/v1/chat/completions", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("nvidia request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("nvidia API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to parse nvidia response: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("empty nvidia response")
 	}
 	return result.Choices[0].Message.Content, nil
 }

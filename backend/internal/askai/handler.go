@@ -291,6 +291,33 @@ func (h *Handler) Ask(w http.ResponseWriter, r *http.Request) {
 			usedFallback = true
 		}
 
+	case req.Model == "glm-5.2":
+		nvidiaKey := os.Getenv("NVIDIA_API_KEY")
+		if nvidiaKey != "" {
+			reply, err = h.callNvidia(nvidiaKey, "z-ai/glm-5.2", fullSystem, req.Question)
+			if err != nil {
+				h.recordCloudFailure("NVIDIA", err)
+				h.logger.Warn("askai.nvidia_failed_fallback_ollama", zap.Error(err))
+				spShort := roleSystemPrompts[req.Role]
+				if spShort == "" {
+					spShort = roleSystemPrompts["Engineering"]
+				}
+				shortSystem := spShort + "\n" + h.buildMiniContext()
+				reply, err = h.callOllama("qwen3:4b", shortSystem, req.Question)
+				usedFallback = true
+			} else {
+				h.recordCloudSuccess()
+			}
+		} else {
+			spShort := roleSystemPrompts[req.Role]
+			if spShort == "" {
+				spShort = roleSystemPrompts["Engineering"]
+			}
+			shortSystem := spShort + "\n" + h.buildMiniContext()
+			reply, err = h.callOllama("qwen3:4b", shortSystem, req.Question)
+			usedFallback = true
+		}
+
 	default:
 		spShort := roleSystemPrompts[req.Role]
 		if spShort == "" {
@@ -488,6 +515,50 @@ func (h *Handler) callGroq(apiKey, model, system, question string) (string, erro
 	return result.Choices[0].Message.Content, nil
 }
 
+// callNvidia hits NVIDIA's OpenAI-compatible chat completions endpoint
+// (integrate.api.nvidia.com) — same request/response shape as Groq.
+func (h *Handler) callNvidia(apiKey, model, system, question string) (string, error) {
+	body := map[string]any{
+		"model":      model,
+		"max_tokens": 2048,
+		"messages": []map[string]string{
+			{"role": "system", "content": system},
+			{"role": "user", "content": question},
+		},
+	}
+	b, _ := json.Marshal(body)
+
+	req, _ := http.NewRequest("POST", "https://integrate.api.nvidia.com/v1/chat/completions", bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+
+	resp, err := h.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("nvidia request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("nvidia API error %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", fmt.Errorf("failed to parse nvidia response: %w", err)
+	}
+	if len(result.Choices) == 0 {
+		return "", fmt.Errorf("empty nvidia response")
+	}
+	return result.Choices[0].Message.Content, nil
+}
+
 // PipelinePause returns whether the signal pipeline should pause.
 func (h *Handler) PipelinePause(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -578,6 +649,22 @@ func (h *Handler) probeProvider(client *http.Client, provider string) bool {
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("x-api-key", key)
 		req.Header.Set("anthropic-version", "2023-06-01")
+		resp, err := client.Do(req)
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		return resp.StatusCode == 200
+
+	case "NVIDIA":
+		key := os.Getenv("NVIDIA_API_KEY")
+		if key == "" {
+			return false
+		}
+		body := `{"model":"z-ai/glm-5.2","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`
+		req, _ := http.NewRequest("POST", "https://integrate.api.nvidia.com/v1/chat/completions", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+key)
 		resp, err := client.Do(req)
 		if err != nil {
 			return false

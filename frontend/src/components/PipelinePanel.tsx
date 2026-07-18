@@ -39,6 +39,7 @@ type AgentModel =
   | 'qwen3'
   | 'deepseek-r1-local'
   | 'qwen3-local'
+  | 'glm-5.2'
 
 const AGENT_MODELS: { value: AgentModel; label: string }[] = [
   { value: 'claude-sonnet',     label: 'Claude Sonnet (API)' },
@@ -46,6 +47,7 @@ const AGENT_MODELS: { value: AgentModel; label: string }[] = [
   { value: 'qwen3',             label: 'Qwen3 (Groq cloud)' },
   { value: 'deepseek-r1-local', label: 'DeepSeek R1 7B (Ollama · local)' },
   { value: 'qwen3-local',       label: 'Qwen3 4B (Ollama · local)' },
+  { value: 'glm-5.2',           label: 'GLM-5.2 (NVIDIA cloud)' },
 ]
 
 type RepoFilter = 'all' | 'new' | 'good' | 'rejected' | 'researched'
