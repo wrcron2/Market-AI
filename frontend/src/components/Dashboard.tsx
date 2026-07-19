@@ -44,9 +44,16 @@ const TAB_VALUES = Object.keys({
   signals: 0, portfolio: 0, reports: 0, alerts: 0, audit: 0, versions: 0, pipeline: 0, config: 0,
 } satisfies Record<Tab, number>) as Tab[]
 
-function tabFromPath(pathname: string): Tab {
-  const segment = pathname.replace(/^\//, '')
-  return (TAB_VALUES as string[]).includes(segment) ? (segment as Tab) : 'signals'
+function normalizePathSegment(pathname: string): string {
+  return pathname.replace(/^\/+/, '').replace(/\/+$/, '')
+}
+
+// Returns null when the path segment isn't a known tab (root, trailing
+// slash mismatches, or an unrecognized path) so callers can fall back to
+// a legacy `?tab=` query param before defaulting to 'signals'.
+function tabFromPath(pathname: string): Tab | null {
+  const segment = normalizePathSegment(pathname)
+  return (TAB_VALUES as string[]).includes(segment) ? (segment as Tab) : null
 }
 
 export function Dashboard() {
@@ -56,7 +63,12 @@ export function Dashboard() {
   const { isOpen: marketOpen, minutesUntilClose: marketMinutes } = useMarketStatus()
   const location = useLocation()
   const navigate = useNavigate()
-  const activeTab = tabFromPath(location.pathname)
+  // Path segment wins when it's a known tab. Otherwise fall back to a
+  // legacy `?tab=` query param (old bookmarks/links), then 'signals'.
+  const legacyTabParam = new URLSearchParams(location.search).get('tab')
+  const activeTab: Tab =
+    tabFromPath(location.pathname) ??
+    (legacyTabParam && (TAB_VALUES as string[]).includes(legacyTabParam) ? (legacyTabParam as Tab) : 'signals')
   const setActiveTab = useCallback((tab: Tab) => navigate(`/${tab}`), [navigate])
   const [navCollapsed, setNavCollapsed] = useState(false)
   const [askOpen, setAskOpen] = useState(true)
@@ -165,13 +177,28 @@ export function Dashboard() {
     },
   })
 
-  // Canonicalize "/" and any unknown path to the matching tab route.
+  // Canonicalize "/", any unknown path, a trailing slash, or a legacy
+  // "?tab=" link to the matching path-based route — preserving any other
+  // query params (e.g. `?tab=reports&date=x` -> `/reports?date=x`).
   useEffect(() => {
-    const segment = location.pathname.replace(/^\//, '')
-    if (segment !== activeTab) {
-      navigate(`/${activeTab}`, { replace: true })
+    const params = new URLSearchParams(location.search)
+    let needsRewrite = false
+
+    if (params.has('tab')) {
+      params.delete('tab')
+      needsRewrite = true
     }
-  }, [location.pathname, activeTab, navigate])
+
+    const canonicalPath = `/${activeTab}`
+    if (location.pathname !== canonicalPath) {
+      needsRewrite = true
+    }
+
+    if (needsRewrite) {
+      const query = params.toString()
+      navigate(`${canonicalPath}${query ? `?${query}` : ''}`, { replace: true })
+    }
+  }, [location.pathname, location.search, activeTab, navigate])
 
   useEffect(() => {
     const loadPending = async () => {

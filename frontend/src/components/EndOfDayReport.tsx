@@ -70,7 +70,7 @@ export function EndOfDayReport({ refreshToken }: { refreshToken?: number }) {
 
   const handleShare = async () => {
     if (!report) return
-    const link = `${window.location.origin}${window.location.pathname}?tab=reports&date=${report.date}`
+    const link = `${window.location.origin}/reports?date=${encodeURIComponent(report.date)}`
     try {
       await navigator.clipboard.writeText(link)
       setCopied(true)

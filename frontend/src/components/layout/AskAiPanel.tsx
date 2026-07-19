@@ -2,7 +2,16 @@ import { useState, useRef, useEffect } from 'react'
 import { Sparkles, ChevronRight, ArrowUp } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 
-type Role = 'Chief PM' | 'Engineering' | 'Risk Analyst' | 'Strategy Advisor'
+type Role =
+  | 'Chief PM'
+  | 'Engineering Team'
+  | 'Backend Engineer'
+  | 'Frontend Engineer'
+  | 'ML Quant'
+  | 'DevOps'
+  | 'QA Engineer'
+  | 'Risk Analyst'
+  | 'Strategy Advisor'
 type AiModel = 'claude-sonnet' | 'deepseek-r1' | 'qwen3' | 'glm-5.2'
 
 const MODEL_LABELS: Record<AiModel, { label: string; desc: string }> = {
@@ -19,7 +28,12 @@ interface Message {
 
 const ROLE_DESC: Record<Role, string> = {
   'Chief PM': 'Strategic decisions · PRD format · priority assessment',
-  Engineering: 'Architecture · code patterns · technical trade-offs',
+  'Engineering Team': 'All five engineers weigh in · cross-layer answers',
+  'Backend Engineer': 'Go server · order lifecycle · SQLite · WebSocket',
+  'Frontend Engineer': 'React dashboard · routes · real-time trading UI',
+  'ML Quant': 'AI brain · backtests · risk metrics · Phase 3 gate',
+  DevOps: 'Oracle deploys · Docker · nginx · Ollama ops',
+  'QA Engineer': 'Reviews & verification · financial-correctness bugs',
   'Risk Analyst': 'Position sizing · drawdown · risk metrics',
   'Strategy Advisor': 'Signal quality · backtests · entry/exit rules',
 }
@@ -43,11 +57,10 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
   const [model, setModel] = useState<AiModel>('claude-sonnet')
   const [input, setInput] = useState('')
   const [typing, setTyping] = useState(false)
-  const [history, setHistory] = useState<Record<Role, Message[]>>({
-    'Chief PM': [],
-    Engineering: [],
-    'Risk Analyst': [],
-    'Strategy Advisor': [],
+  const [history, setHistory] = useState<Record<Role, Message[]>>(() => {
+    const empty = {} as Record<Role, Message[]>
+    for (const r of Object.keys(ROLE_DESC) as Role[]) empty[r] = []
+    return empty
   })
   const scrollRef = useRef<HTMLDivElement>(null)
   const messages = history[role]
