@@ -239,6 +239,23 @@ export function PipelinePanel() {
   return (
     <div style={{ padding: '0 0 40px' }}>
 
+      {/* Deprecation: the pipeline now lives in Market-AI-Factory (P4 migration). */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
+        background: '#422006', border: '1px solid #f59e0b40', borderRadius: 8,
+        padding: '10px 14px', color: '#fbbf24', fontSize: 12.5,
+      }}>
+        <span style={{ fontWeight: 700 }}>Moved:</span>
+        <span>
+          the Repo Scout &amp; Research pipeline has migrated to the{' '}
+          <a href="http://129.159.146.157:9000/pipeline" style={{ color: '#fbbf24', fontWeight: 700 }}>
+            Market&nbsp;AI&nbsp;·&nbsp;Factory
+          </a>{' '}
+          dashboard, where approved repos can be onboarded as trading products. This tab keeps
+          working until cutover, but new runs should happen in the Factory.
+        </span>
+      </div>
+
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24,
