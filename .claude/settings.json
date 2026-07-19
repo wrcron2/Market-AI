@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s http://129.159.146.157:8080/api/orders/recent?limit=5)",
+      "Bash(curl -s http://129.159.146.157:8080/api/stats)",
+      "Bash(curl -s \"http://129.159.146.157:8080/api/orders/recent?limit=5\")",
+      "mcp__claude_ai_Notion__notion-create-pages",
+      "Bash(echo \"exit=$?\")",
+      "Bash(go vet *)",
+      "Bash(claude plugin *)"
+    ],
+    "additionalDirectories": [
+      "/private/tmp/oracle-rescue"
+    ]
+  }
+}

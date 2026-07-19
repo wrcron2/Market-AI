@@ -5,6 +5,8 @@
 backend/vendor/
 backend/*.exe
 backend/tmp/
+backend/server
+backend/logs/
 
 # Python
 ai-brain/__pycache__/
