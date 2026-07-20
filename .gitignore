@@ -41,3 +41,6 @@ infra/versions/switch-request
 *.swp
 .claude/worktrees/
 .claude/settings.local.json
+
+# graphify — regeneratable knowledge graph build output (run /graphify to rebuild)
+graphify-out/
