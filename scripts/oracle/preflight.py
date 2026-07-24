@@ -115,35 +115,64 @@ def check_ollama_models() -> tuple[bool, str]:
     return (not missing), ("all models present" if not missing else f"missing: {missing}")
 
 
-def check_llm_format(model: str) -> tuple[bool, str]:
-    """
-    Live plain-text generation test — mirrors the position monitor's real call.
-    A model that cannot answer "HOLD. <reason>" here will silently disable the
-    monitor in production, so fail loudly now.
-    """
-    system = ('You are a position manager. Respond with EXACTLY one of:\n'
-              'HOLD. [reason]\nSELL. [reason]\nUNCERTAIN. [reason]')
-    user = ("Symbol: TEST\nSide: LONG\nEntry: 100.00\nCurrent: 102.00\n"
-            "Unrealized P/L: +2.00 percent\n\nShould we HOLD, SELL, or are you UNCERTAIN?")
-    t0 = time.time()
-    status, body = _http(f"{OLLAMA}/api/chat", data={
+def _ollama_chat(model: str, system: str, user: str, json_mode: bool,
+                 num_predict: int) -> tuple[float, str | None, str]:
+    """One live Ollama call. Returns (seconds, content-or-None, error)."""
+    payload = {
         "model": model,
         "messages": [{"role": "system", "content": system},
                      {"role": "user", "content": user}],
         "stream": False,
         "think": False,
-        "options": {"num_predict": 40, "num_ctx": 1024},
-    }, timeout=300)
+        "options": {"num_predict": num_predict, "num_ctx": 1024},
+    }
+    if json_mode:
+        payload["format"] = "json"
+    t0 = time.time()
+    status, body = _http(f"{OLLAMA}/api/chat", data=payload, timeout=300)
     dt = time.time() - t0
     if status != 200:
-        return False, f"HTTP {status}: {body[:100]}"
+        return dt, None, f"HTTP {status}: {body[:100]}"
     try:
-        content = json.loads(body)["message"]["content"].strip()
+        return dt, json.loads(body)["message"]["content"].strip(), ""
     except (ValueError, KeyError):
-        return False, f"bad response body: {body[:100]}"
+        return dt, None, f"bad response body: {body[:100]}"
+
+
+def check_llm_format(model: str) -> tuple[bool, str]:
+    """
+    Live plain-text generation test — mirrors the position monitor's real call
+    (deepseek-r1:7b in production). A model that cannot answer "HOLD. <reason>"
+    here silently disables the monitor, so fail loudly now.
+    """
+    system = ('You are a position manager. Respond with EXACTLY one of:\n'
+              'HOLD. [reason]\nSELL. [reason]\nUNCERTAIN. [reason]')
+    user = ("Symbol: TEST\nSide: LONG\nEntry: 100.00\nCurrent: 102.00\n"
+            "Unrealized P/L: +2.00 percent\n\nShould we HOLD, SELL, or are you UNCERTAIN?")
+    dt, content, err = _ollama_chat(model, system, user, json_mode=False, num_predict=40)
+    if content is None:
+        return False, err
     first = content.split()[0].rstrip(".,:").upper() if content else ""
     ok = first in ("HOLD", "SELL", "UNCERTAIN")
     return ok, f"{'ok' if ok else 'BAD FORMAT'} ({dt:.0f}s): {content[:50]!r}"
+
+
+def check_llm_json(model: str) -> tuple[bool, str]:
+    """
+    Live JSON generation test — mirrors the signal pipeline's real call
+    (qwen3:4b with format="json" in production).
+    """
+    system = 'Respond ONLY with JSON: {"decision": "BUY"|"SKIP", "confidence": 0.0-1.0}'
+    user = "RSI 28, price at lower Bollinger band, VIX 15. BUY or SKIP?"
+    dt, content, err = _ollama_chat(model, system, user, json_mode=True, num_predict=60)
+    if content is None:
+        return False, err
+    try:
+        obj = json.loads(content)
+        ok = obj.get("decision") in ("BUY", "SKIP")
+    except ValueError:
+        ok = False
+    return ok, f"{'ok' if ok else 'BAD JSON'} ({dt:.0f}s): {content[:50]!r}"
 
 
 def check_alpaca(env: dict[str, str]) -> tuple[bool, str]:
@@ -226,8 +255,10 @@ def main() -> int:
     run("frontend", check_frontend)
     run("brain_heartbeat", check_heartbeat, args.repo)
     run("ollama_models", check_ollama_models)
-    for m in REQUIRED_MODELS:
-        run(f"llm_format[{m}]", check_llm_format, m)
+    # Test each model in its PRODUCTION role: qwen3:4b answers JSON for the
+    # signal pipeline; deepseek-r1:7b answers plain text for the monitor.
+    run("llm_json[qwen3:4b]", check_llm_json, "qwen3:4b")
+    run("llm_format[deepseek-r1:7b]", check_llm_format, "deepseek-r1:7b")
     run("alpaca_account", check_alpaca, env)
     run("yahoo_feed", check_yahoo)
     run("disk_space", check_disk)

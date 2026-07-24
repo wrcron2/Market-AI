@@ -256,12 +256,18 @@ class PositionMonitorAgent:
         current: float, entry_price: float, market_val: float,
     ) -> str:
         prompt = self._build_prompt(pos, plpc, pl, current, entry_price, market_val)
+        # With Bedrock disabled, escalate to the strongest LOCAL reasoner
+        # (deepseek-r1:7b) — preflight 2026-07-24 showed qwen3:4b cannot follow
+        # the plain-text HOLD/SELL format, so it must never sit in this path.
+        # When use_aws is re-enabled, HIGH complexity routes to Bedrock and the
+        # override is ignored.
         raw = self.router.complete(
             system=MONITOR_SYSTEM,
             user=prompt,
             complexity=Complexity.HIGH,
             max_tokens=80,
             json_mode=False,
+            model_override=None if self.router.use_aws else self.monitor_model,
         )
         decision = _parse_decision(raw)
         # NOTE: with AWS disabled this escalation runs on local Ollama, not
