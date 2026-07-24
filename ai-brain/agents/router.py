@@ -23,6 +23,18 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 log = structlog.get_logger(__name__)
 
 
+def _resolve_format(schema: Type[BaseModel] | None, json_mode: bool):
+    """
+    Resolve the Ollama `format` parameter:
+      schema given       → constrained JSON matching the schema
+      json_mode (no schema) → "json" (any valid JSON object)
+      plain text          → None (no constraint — required for HOLD./SELL. answers)
+    """
+    if schema is not None:
+        return schema.model_json_schema()
+    return "json" if json_mode else None
+
+
 class Complexity(str, Enum):
     LOW          = "low"          # → Ollama qwen3:4b  (signal, risk — speed-critical)
     HIGH         = "high"         # → Ollama qwen3:4b  (Bull, Bear — adversarial, fast)
@@ -58,21 +70,29 @@ class LLMRouter:
         max_tokens: int = 512,
         schema: Type[BaseModel] | None = None,
         model_override: str | None = None,
+        json_mode: bool = True,
     ) -> str:
         """
         Route a completion to the appropriate model:
           LOW / HIGH      → qwen3:4b  (fast, signal/risk/bull/bear)
           HIGH_REASON     → deepseek-r1:7b (Judge — chain-of-thought reasoning)
           model_override  → bypasses routing for this call only
+          json_mode       → False for plain-text answers (e.g. position monitor's
+                            "HOLD./SELL./UNCERTAIN." format). Defaults to True to
+                            preserve JSON-constrained output for pipeline agents.
+                            2026-07-24 bug: forcing format="json" on every call made
+                            the monitor's plain-text prompt unanswerable — the model
+                            echoed JSON and every decision parsed as UNCERTAIN.
         """
         if complexity == Complexity.HIGH_REASON:
             return self._ollama_complete(
                 system, user, max_tokens, schema=schema,
-                model_override=self.ollama_reason_model,
+                model_override=self.ollama_reason_model, json_mode=json_mode,
             )
         if complexity == Complexity.HIGH and self.use_aws:
             return self._bedrock_complete(system, user, max_tokens, schema=schema)
-        return self._ollama_complete(system, user, max_tokens, schema=schema, model_override=model_override)
+        return self._ollama_complete(system, user, max_tokens, schema=schema,
+                                     model_override=model_override, json_mode=json_mode)
 
     def model_tag(self, complexity: Complexity) -> str:
         """Return a short label for the model used (stored on the signal)."""
@@ -104,10 +124,11 @@ class LLMRouter:
         max_tokens: int,
         schema: Type[BaseModel] | None = None,
         model_override: str | None = None,
+        json_mode: bool = True,
     ) -> str:
         model = model_override or self.ollama_model
         log.debug("ollama.complete", model=model)
-        fmt = schema.model_json_schema() if schema else "json"
+        fmt = _resolve_format(schema, json_mode)
         resp = self._ollama_client.chat(
             model=model,
             messages=[

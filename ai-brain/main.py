@@ -17,6 +17,7 @@ Pre-filter:
 """
 from __future__ import annotations
 
+import json
 import os
 import signal
 import threading
@@ -73,6 +74,22 @@ log = structlog.get_logger("marketflow.brain")
 BAR_INTERVAL_SECONDS = 300    # 5-minute bar cycle
 PIPELINE_WORKERS     = 5      # parallel threads for the AI agent pipeline
 BACKEND_MODE_URL     = f"http://{os.getenv('BRAIN_HOST', '127.0.0.1')}:{os.getenv('GO_SERVER_PORT', '8080')}/api/mode"
+
+# Heartbeat file — written every loop iteration (including sleep ticks) so the
+# host-side watchdog (scripts/oracle/watchdog.sh) can detect a stalled or dead
+# brain by file age. Mounted to the host via ./logs:/app/logs in docker-compose.
+HEARTBEAT_PATH = os.getenv("HEARTBEAT_PATH", "/app/logs/brain_heartbeat.json")
+
+
+def _write_heartbeat(window: str, bar: int, mode: str) -> None:
+    """Best-effort liveness marker — never let heartbeat IO kill the loop."""
+    try:
+        os.makedirs(os.path.dirname(HEARTBEAT_PATH), exist_ok=True)
+        with open(HEARTBEAT_PATH, "w") as f:
+            json.dump({"ts": int(time.time()), "window": window,
+                       "bar": bar, "mode": mode}, f)
+    except Exception as exc:
+        log.warning("brain.heartbeat_write_failed", error=str(exc))
 
 
 def _get_current_mode() -> str:
@@ -274,6 +291,7 @@ def main() -> None:
         bar_count    += 1
         current_mode  = _get_current_mode()
         window        = _market_window()
+        _write_heartbeat(window, bar_count, current_mode)
 
         # ── End-of-day report — generated once per day during the post-market
         # window, after the EOD position sweep has had a chance to run.

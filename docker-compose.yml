@@ -30,6 +30,8 @@ services:
     ports:
       - "${BRAIN_GRPC_PORT:-50052}:50052"
     env_file: .env
+    volumes:
+      - ./logs:/app/logs             # heartbeat file for host watchdog
     # NOTE: Ollama must be running on the host at OLLAMA_HOST
     extra_hosts:
       - "host.docker.internal:host-gateway"

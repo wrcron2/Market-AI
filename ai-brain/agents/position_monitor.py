@@ -15,7 +15,9 @@ Hard stop-loss (L1) is the only exception — it fires without an LLM call.
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import time
 from typing import Any
 
@@ -230,16 +232,21 @@ class PositionMonitorAgent:
         current: float, entry_price: float, market_val: float,
     ) -> str:
         prompt = self._build_prompt(pos, plpc, pl, current, entry_price, market_val)
+        # json_mode=False — the prompt demands plain "HOLD./SELL./UNCERTAIN."
+        # Forcing JSON here (the pre-2026-07-24 default) made every answer
+        # unparseable and the monitor returned UNCERTAIN forever.
         raw = self.router.complete(
             system=MONITOR_SYSTEM,
             user=prompt,
             complexity=Complexity.LOW,
             max_tokens=80,
             model_override=self.monitor_model,
+            json_mode=False,
         )
         decision = _parse_decision(raw)
-        log.info("position_monitor.ollama_decision",
-                 symbol=pos["symbol"], raw=raw[:60], decision=decision)
+        log.info("position_monitor.routine_decision",
+                 symbol=pos["symbol"], model=self.monitor_model,
+                 raw=raw[:60], decision=decision)
         return decision
 
     def _ask_bedrock(
@@ -254,10 +261,14 @@ class PositionMonitorAgent:
             user=prompt,
             complexity=Complexity.HIGH,
             max_tokens=80,
+            json_mode=False,
         )
         decision = _parse_decision(raw)
-        log.info("position_monitor.bedrock_decision",
-                 symbol=pos["symbol"], raw=raw[:60], decision=decision)
+        # NOTE: with AWS disabled this escalation runs on local Ollama, not
+        # Bedrock — the model tag in the log makes the actual backend explicit.
+        log.info("position_monitor.escalation_decision",
+                 symbol=pos["symbol"], model=self.router.model_tag(Complexity.HIGH),
+                 raw=raw[:60], decision=decision)
         return decision
 
     def _fetch_sma20(self, symbol: str) -> float | None:
@@ -333,9 +344,43 @@ class PositionMonitorAgent:
             pass   # alert is best-effort; position is held regardless
 
 
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_DECISIONS = ("HOLD", "SELL", "UNCERTAIN")
+
+
 def _parse_decision(raw: str) -> str:
-    """Extract HOLD / SELL / UNCERTAIN from the first word of the LLM response."""
-    first_word = raw.strip().split()[0].rstrip(".").upper() if raw.strip() else "UNCERTAIN"
-    if first_word in ("HOLD", "SELL", "UNCERTAIN"):
+    """
+    Extract HOLD / SELL / UNCERTAIN from an LLM response.
+
+    Order of attempts:
+      1. Strip deepseek-r1 <think>...</think> blocks, then read the first word
+         (the format the prompt demands).
+      2. If the response is JSON, look for a decision-carrying key — some models
+         answer {"decision": "HOLD", ...} despite the plain-text instruction.
+      3. If exactly ONE distinct decision word appears anywhere in prose, accept
+         it. Two different words ("I would not SELL, HOLD instead") stay
+         UNCERTAIN — never guess when the model contradicts itself.
+    """
+    text = _THINK_RE.sub("", raw or "").strip()
+    if not text:
+        return "UNCERTAIN"
+
+    first_word = text.split()[0].strip(".,:;!\"'").upper()
+    if first_word in _DECISIONS:
         return first_word
+
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict):
+            for key in ("decision", "action", "answer", "recommendation"):
+                val = str(obj.get(key, "")).strip().strip(".").upper()
+                if val in _DECISIONS:
+                    return val
+    except (ValueError, TypeError):
+        pass
+
+    upper = text.upper()
+    found = {w for w in _DECISIONS if re.search(rf"\b{w}\b", upper)}
+    if len(found) == 1:
+        return found.pop()
     return "UNCERTAIN"
