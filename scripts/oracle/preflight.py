@@ -115,9 +115,9 @@ def check_ollama_models() -> tuple[bool, str]:
     return (not missing), ("all models present" if not missing else f"missing: {missing}")
 
 
-def _ollama_chat(model: str, system: str, user: str, json_mode: bool,
+def _ollama_chat(model: str, system: str, user: str, fmt,
                  num_predict: int) -> tuple[float, str | None, str]:
-    """One live Ollama call. Returns (seconds, content-or-None, error)."""
+    """One live Ollama call. fmt: None | "json" | JSON-schema dict."""
     payload = {
         "model": model,
         "messages": [{"role": "system", "content": system},
@@ -126,8 +126,8 @@ def _ollama_chat(model: str, system: str, user: str, json_mode: bool,
         "think": False,
         "options": {"num_predict": num_predict, "num_ctx": 1024},
     }
-    if json_mode:
-        payload["format"] = "json"
+    if fmt is not None:
+        payload["format"] = fmt
     t0 = time.time()
     status, body = _http(f"{OLLAMA}/api/chat", data=payload, timeout=300)
     dt = time.time() - t0
@@ -149,7 +149,7 @@ def check_llm_format(model: str) -> tuple[bool, str]:
               'HOLD. [reason]\nSELL. [reason]\nUNCERTAIN. [reason]')
     user = ("Symbol: TEST\nSide: LONG\nEntry: 100.00\nCurrent: 102.00\n"
             "Unrealized P/L: +2.00 percent\n\nShould we HOLD, SELL, or are you UNCERTAIN?")
-    dt, content, err = _ollama_chat(model, system, user, json_mode=False, num_predict=40)
+    dt, content, err = _ollama_chat(model, system, user, fmt=None, num_predict=40)
     if content is None:
         return False, err
     first = content.split()[0].rstrip(".,:").upper() if content else ""
@@ -159,12 +159,22 @@ def check_llm_format(model: str) -> tuple[bool, str]:
 
 def check_llm_json(model: str) -> tuple[bool, str]:
     """
-    Live JSON generation test — mirrors the signal pipeline's real call
-    (qwen3:4b with format="json" in production).
+    Live JSON generation test — mirrors the signal pipeline's real call:
+    production passes a pydantic JSON schema as the Ollama `format`, which
+    constrains the output structure. Bare format="json" is NOT what production
+    does (and qwen3:4b echoes the prompt under it).
     """
+    schema = {
+        "type": "object",
+        "properties": {
+            "decision": {"type": "string", "enum": ["BUY", "SKIP"]},
+            "confidence": {"type": "number"},
+        },
+        "required": ["decision", "confidence"],
+    }
     system = 'Respond ONLY with JSON: {"decision": "BUY"|"SKIP", "confidence": 0.0-1.0}'
     user = "RSI 28, price at lower Bollinger band, VIX 15. BUY or SKIP?"
-    dt, content, err = _ollama_chat(model, system, user, json_mode=True, num_predict=60)
+    dt, content, err = _ollama_chat(model, system, user, fmt=schema, num_predict=60)
     if content is None:
         return False, err
     try:
