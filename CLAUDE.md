@@ -55,6 +55,25 @@ Prompt-level caps are ADVISORY ONLY — the 2026-07-09 QQQ incident (LLM ignored
 Position strategy_name is joined from staged_orders (same id) so the position
 monitor's SMA20 trend exit works; empty strategy_name = legacy dual_momentum.
 
+## Business-Logic Change Gate (added 2026-07-26, incident-driven)
+On 2026-07-25 the pipeline went silent — zero new signals, 487-order pending
+backlog — for an unknown number of trading days with zero alerts, because
+every existing check (`preflight.py`, `watchdog.sh`) verified infra liveness
+only, never pipeline *output*. See `pipeline-health-monitoring` SKILL.md for
+the full pattern. Two rules going forward:
+- Any change to `ai-brain/agents/`, `ai-brain/data_feed/symbol_universe.py`,
+  or pipeline logic in `main.py` (rotation, dedup, candidate filtering)
+  REQUIRES `qa` agent sign-off on the diff before push to main.
+- State explicitly whether the change alters strategy *behavior* (→ needs
+  Phase 3 backtest validation before any live-capital relevance) or is purely
+  operational/monitoring (→ does not). Do not silently ship a behavior change
+  as if it were operational — that ambiguity is itself a gate violation.
+Note: the 5-ETF universe and single-winner relative-strength rotation are
+`dual_momentum`'s intended design, not a bug by themselves — see
+`docs/why-no-new-symbols.md` for the full incident writeup. The bug was the
+combination of that design with an unmonitored, unbounded dedup-blocked
+backlog and zero business-outcome alerting.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -20,8 +20,8 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/marketflow/backend/internal/alpaca"
-	"github.com/marketflow/backend/internal/brainfeed"
 	"github.com/marketflow/backend/internal/askai"
+	"github.com/marketflow/backend/internal/brainfeed"
 	"github.com/marketflow/backend/internal/db"
 	"github.com/marketflow/backend/internal/greenlight"
 	grpcbridge "github.com/marketflow/backend/internal/grpc"
@@ -75,15 +75,15 @@ func main() {
 	}
 
 	// ─── Green Light HTTP Handler ─────────────────────────────────────────────
-	glHandler    := greenlight.NewHandler(database, hub, modeManager, logger)
-	alpacaProxy  := alpaca.NewHandler()
+	glHandler := greenlight.NewHandler(database, hub, modeManager, logger)
+	alpacaProxy := alpaca.NewHandler()
 
 	projectRoot := resolveProjectRoot(getEnv("PROJECT_ROOT", ""))
 	logger.Info("pipeline: resolved project root", zap.String("path", projectRoot))
 	pipelineHandler := pipeline.New(projectRoot, database, logger)
 
 	// ─── Auto-Execute toggle (in-memory, resets to false on restart) ──────────
-	var autoExMu   sync.RWMutex
+	var autoExMu sync.RWMutex
 	autoExEnabled := false
 
 	// ─── LLM Provider (locked to "local" — AWS Bedrock disabled) ────────────
@@ -102,6 +102,22 @@ func main() {
 			return
 		}
 		writeJSON(w, stats)
+	})
+
+	// Pipeline liveness for the daily preflight probe: infra checks (backend up,
+	// Ollama responding) can all pass while signal generation silently stalls —
+	// this reports whether the pipeline has actually produced new candidates.
+	mux.HandleFunc("/api/stats/signal-activity", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		activity, err := database.GetSignalActivity()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, activity)
 	})
 
 	// Recent orders across all statuses — used to seed the signal feed on page load
@@ -153,9 +169,9 @@ func main() {
 			return
 		}
 		hub.Broadcast("order_executed", map[string]any{
-			"signal_id":      req.SignalID,
+			"signal_id":       req.SignalID,
 			"alpaca_order_id": req.AlpacaOrderID,
-			"auto_executed":  true,
+			"auto_executed":   true,
 		})
 		writeJSON(w, map[string]any{"success": true, "signal_id": req.SignalID})
 	})
@@ -311,15 +327,15 @@ func main() {
 		}
 
 		writeJSON(w, map[string]any{
-			"strategies":     strategies,
-			"weekly":         weekly,
-			"recent_trades":  recentTrades,
-			"outcome_stats":  outcomeStats,
-			"order_stats":    orderStats,
-			"all_time_pnl":   allTimePnl,
-			"total_closed":   totalClosed,
-			"total_wins":     totalWins,
-			"overall_win_rate": overallWinRate,
+			"strategies":         strategies,
+			"weekly":             weekly,
+			"recent_trades":      recentTrades,
+			"outcome_stats":      outcomeStats,
+			"order_stats":        orderStats,
+			"all_time_pnl":       allTimePnl,
+			"total_closed":       totalClosed,
+			"total_wins":         totalWins,
+			"overall_win_rate":   overallWinRate,
 			"total_realized_pnl": totalRealizedPnl,
 		})
 	})
@@ -516,10 +532,10 @@ func main() {
 	}()
 
 	// ─── Alpaca proxy (read-only, for dashboard) ──────────────────────────────
-	mux.HandleFunc("/api/alpaca/account",           alpacaProxy.Account)
-	mux.HandleFunc("/api/alpaca/positions",         alpacaProxy.Positions)
+	mux.HandleFunc("/api/alpaca/account", alpacaProxy.Account)
+	mux.HandleFunc("/api/alpaca/positions", alpacaProxy.Positions)
 	mux.HandleFunc("/api/alpaca/portfolio-history", alpacaProxy.PortfolioHistory)
-	mux.HandleFunc("/api/alpaca/equity-history",    alpacaProxy.EquityHistory)
+	mux.HandleFunc("/api/alpaca/equity-history", alpacaProxy.EquityHistory)
 
 	// ─── Close an open position via Alpaca ────────────────────────────────────
 	mux.HandleFunc("/api/alpaca/positions/{symbol}/close", func(w http.ResponseWriter, r *http.Request) {
@@ -711,7 +727,9 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		var req struct{ SignalID string `json:"signal_id"` }
+		var req struct {
+			SignalID string `json:"signal_id"`
+		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid body", http.StatusBadRequest)
 			return
@@ -751,9 +769,9 @@ func main() {
 	})
 
 	// ─── Version management ────────────────────────────────────────────────────
-	mux.HandleFunc("/api/versions",                    versions.List)
-	mux.HandleFunc("/api/versions/switch",             versions.Switch)
-	mux.HandleFunc("/api/versions/{version}/note",     versions.UpdateNote)
+	mux.HandleFunc("/api/versions", versions.List)
+	mux.HandleFunc("/api/versions/switch", versions.Switch)
+	mux.HandleFunc("/api/versions/{version}/note", versions.UpdateNote)
 
 	// ─── Brain Activity live feed (brain → dashboard telemetry) ────────────────
 	brainFeed := brainfeed.New(hub)
@@ -766,13 +784,13 @@ func main() {
 	})
 
 	// ─── Repo Scout & Research Pipeline ─────────────────────────────────────────
-	mux.HandleFunc("/api/pipeline/repos",          pipelineHandler.Repos)
-	mux.HandleFunc("/api/pipeline/status",         pipelineHandler.Status)
-	mux.HandleFunc("/api/pipeline/run/scout",      pipelineHandler.RunScout)
-	mux.HandleFunc("/api/pipeline/run/research",   pipelineHandler.RunResearch)
-	mux.HandleFunc("/api/pipeline/logs",           pipelineHandler.Logs)
-	mux.HandleFunc("/api/pipeline/logs/clear",     pipelineHandler.ClearLogs)
-	mux.HandleFunc("/api/pipeline/report/{id}",    pipelineHandler.Report)
+	mux.HandleFunc("/api/pipeline/repos", pipelineHandler.Repos)
+	mux.HandleFunc("/api/pipeline/status", pipelineHandler.Status)
+	mux.HandleFunc("/api/pipeline/run/scout", pipelineHandler.RunScout)
+	mux.HandleFunc("/api/pipeline/run/research", pipelineHandler.RunResearch)
+	mux.HandleFunc("/api/pipeline/logs", pipelineHandler.Logs)
+	mux.HandleFunc("/api/pipeline/logs/clear", pipelineHandler.ClearLogs)
+	mux.HandleFunc("/api/pipeline/report/{id}", pipelineHandler.Report)
 
 	// ─── Internal broadcast (Python brain → dashboard via WebSocket) ──────────
 	// Only the brain calls this. No CORS check needed (same host).
@@ -840,7 +858,9 @@ func main() {
 			writeJSON(w, map[string]any{"enabled": enabled})
 
 		case http.MethodPost:
-			var req struct{ Enabled bool `json:"enabled"` }
+			var req struct {
+				Enabled bool `json:"enabled"`
+			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				http.Error(w, "invalid body", http.StatusBadRequest)
 				return

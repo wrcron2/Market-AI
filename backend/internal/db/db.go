@@ -359,6 +359,59 @@ func (d *DB) GetStats() (*OrderStats, error) {
 	return &s, row.Scan(&s.TotalSignals, &s.Approved, &s.Rejected, &s.Executed, &s.AvgConfidence)
 }
 
+// SignalActivityStats reports whether the pipeline is actually producing new
+// candidates — infrastructure-liveness checks (backend up, Ollama responding)
+// can all pass while signal generation is silently stuck, which is exactly
+// the gap this closes. Pending count is a duplicate of ListPending's total,
+// kept here as one poll-friendly shape for the preflight script.
+type SignalActivityStats struct {
+	PendingCount                 int     `json:"pending_count"`
+	SignalsLast48h               int     `json:"signals_last_48h"`
+	DistinctSymbolsLast5Sessions int     `json:"distinct_symbols_last_5_sessions"`
+	LastSignalAt                 *string `json:"last_signal_at"`
+}
+
+// GetSignalActivity summarizes recent order-staging activity for health
+// monitoring. The 48h/5-session windows are wall-clock approximations of
+// "last 2 / 5 trading days" (not exchange-calendar aware) — fine for a daily
+// liveness probe, not a substitute for exchange-calendar logic anywhere a
+// trading decision is made.
+func (d *DB) GetSignalActivity() (*SignalActivityStats, error) {
+	s := &SignalActivityStats{}
+
+	if err := d.QueryRow(
+		`SELECT COUNT(*) FROM staged_orders WHERE status = 'PENDING'`,
+	).Scan(&s.PendingCount); err != nil {
+		return nil, fmt.Errorf("GetSignalActivity: pending count: %w", err)
+	}
+
+	now := nowMs()
+	cutoff48h := now - int64(48*time.Hour/time.Millisecond)
+	if err := d.QueryRow(
+		`SELECT COUNT(*) FROM staged_orders WHERE created_at >= ?`, cutoff48h,
+	).Scan(&s.SignalsLast48h); err != nil {
+		return nil, fmt.Errorf("GetSignalActivity: signals_last_48h: %w", err)
+	}
+
+	cutoff5sessions := now - int64(5*24*time.Hour/time.Millisecond)
+	if err := d.QueryRow(
+		`SELECT COUNT(DISTINCT symbol) FROM staged_orders WHERE created_at >= ?`, cutoff5sessions,
+	).Scan(&s.DistinctSymbolsLast5Sessions); err != nil {
+		return nil, fmt.Errorf("GetSignalActivity: distinct_symbols_last_5_sessions: %w", err)
+	}
+
+	var lastCreatedAt sql.NullInt64
+	if err := d.QueryRow(`SELECT MAX(created_at) FROM staged_orders`).Scan(&lastCreatedAt); err != nil {
+		return nil, fmt.Errorf("GetSignalActivity: last_signal_at: %w", err)
+	}
+	if lastCreatedAt.Valid {
+		iso := time.UnixMilli(lastCreatedAt.Int64).UTC().Format(time.RFC3339)
+		s.LastSignalAt = &iso
+	}
+
+	return s, nil
+}
+
 // ─── Signal Outcomes ──────────────────────────────────────────────────────────
 
 type SignalOutcome struct {
@@ -416,15 +469,15 @@ func (d *DB) UpdateOutcome20d(signalID string, price, ret float64, outcome strin
 }
 
 type OutcomeStats struct {
-	Total5d        int     `json:"total_5d"`
-	TruePositive5d int     `json:"true_positive_5d"`
-	FalsePositive5d int    `json:"false_positive_5d"`
-	Accuracy5d     float64 `json:"accuracy_5d"`
-	AvgReturn5d    float64 `json:"avg_return_5d"`
-	Total20d       int     `json:"total_20d"`
-	TruePositive20d int    `json:"true_positive_20d"`
-	Accuracy20d    float64 `json:"accuracy_20d"`
-	AvgReturn20d   float64 `json:"avg_return_20d"`
+	Total5d         int     `json:"total_5d"`
+	TruePositive5d  int     `json:"true_positive_5d"`
+	FalsePositive5d int     `json:"false_positive_5d"`
+	Accuracy5d      float64 `json:"accuracy_5d"`
+	AvgReturn5d     float64 `json:"avg_return_5d"`
+	Total20d        int     `json:"total_20d"`
+	TruePositive20d int     `json:"true_positive_20d"`
+	Accuracy20d     float64 `json:"accuracy_20d"`
+	AvgReturn20d    float64 `json:"avg_return_20d"`
 }
 
 func (d *DB) GetOutcomeStats() (*OutcomeStats, error) {
@@ -490,7 +543,7 @@ const (
 type Position struct {
 	ID              string         `json:"id"`
 	Symbol          string         `json:"symbol"`
-	Direction       string         `json:"direction"`     // LONG | SHORT
+	Direction       string         `json:"direction"` // LONG | SHORT
 	Quantity        float64        `json:"quantity"`
 	EntryPrice      float64        `json:"entry_price"`
 	EntryTime       int64          `json:"entry_time"`
@@ -1038,12 +1091,12 @@ func (d *DB) GetStrategyBreakdown() ([]StrategyReport, error) {
 }
 
 type WeeklyProgress struct {
-	Week      string  `json:"week"`
-	Trades    int     `json:"trades"`
-	Pnl       float64 `json:"pnl"`
-	CumPnl    float64 `json:"cum_pnl"`
-	Winners   int     `json:"winners"`
-	Losers    int     `json:"losers"`
+	Week    string  `json:"week"`
+	Trades  int     `json:"trades"`
+	Pnl     float64 `json:"pnl"`
+	CumPnl  float64 `json:"cum_pnl"`
+	Winners int     `json:"winners"`
+	Losers  int     `json:"losers"`
 }
 
 func (d *DB) GetWeeklyProgress() ([]WeeklyProgress, error) {

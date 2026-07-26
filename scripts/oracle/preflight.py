@@ -18,6 +18,8 @@ Checks (all live, no mocks):
   7. Yahoo Finance reachable      (chart API for XLE)
   8. Disk space                   (> 2 GB free)
   9. RESEND_API_KEY present       (warn only)
+ 10. Signal activity              (/api/stats/signal-activity — pending backlog
+                                   bounded, pipeline still producing signals)
 
 Result: posts to the dashboard (/api/alerts) AND emails via Resend —
 HIGH on any failure, MEDIUM "Preflight PASSED" daily confidence email otherwise.
@@ -41,6 +43,7 @@ FRONTEND = "http://127.0.0.1:3000"
 OLLAMA = "http://127.0.0.1:11434"
 REQUIRED_MODELS = ["qwen3:4b", "deepseek-r1:7b"]
 HEARTBEAT_MAX_AGE = 15 * 60  # seconds
+PENDING_BACKLOG_MAX = 20  # staged orders awaiting Green Light review
 RESEND_API_URL = "https://api.resend.com/emails"
 
 
@@ -225,6 +228,43 @@ def check_resend(env: dict[str, str]) -> tuple[bool, str]:
         "key present" if env.get("RESEND_API_KEY") else "RESEND_API_KEY missing — email alerts DISABLED")
 
 
+def check_signal_activity() -> tuple[bool, str]:
+    """
+    Business-outcome check, not a liveness check — every other check here can
+    pass while the pipeline produces nothing. This exact check would have caught
+    the 2026-07 silent-pipeline incident (zero new signals, 487 pending orders,
+    zero alerts) that every infra probe rated healthy.
+    """
+    status, body = _http(f"{BACKEND}/api/stats/signal-activity", timeout=10)
+    if status != 200:
+        return False, f"HTTP {status}"
+    try:
+        act = json.loads(body)
+        pending = int(act["pending_count"])
+        recent = int(act["signals_last_48h"])
+        symbols = int(act["distinct_symbols_last_5_sessions"])
+    except (ValueError, KeyError, TypeError) as exc:
+        return False, f"unexpected response shape ({exc}): {body[:120]}"
+    last = act.get("last_signal_at") or "never"
+
+    if pending > PENDING_BACKLOG_MAX:
+        return False, (f"{pending} orders PENDING (> {PENDING_BACKLOG_MAX}) — approval backlog "
+                       f"is growing unbounded; triage in the Green Light gate by hand "
+                       f"(human-only, do NOT bulk approve/reject). last signal {last}")
+    # Silence is measured in TRADING SESSIONS, not wall-clock hours. A 48h window
+    # is not weekend/holiday-safe: this cron runs Mon-Fri 11:00 UTC, so on Monday
+    # it only looks back to Saturday 11:00 UTC while Friday's signals (staged
+    # 13:30-20:00 UTC) are already 63-70h old. A healthy pipeline would FAIL every
+    # Monday, and a check that cries wolf weekly gets ignored. signals_last_48h
+    # stays in the message as context for the human reading the alert only.
+    if symbols == 0:
+        return False, ("no signals across the last 5 trading sessions while every other "
+                       "check passes — this is business-logic silence, not infra failure; "
+                       f"pending={pending}, signals(48h)={recent}, last signal {last}")
+    return True, (f"{symbols} symbols/5 sessions, {recent} signals/48h, "
+                  f"{pending} pending, last signal {last}")
+
+
 # ── Reporting ─────────────────────────────────────────────────────────────────
 
 def post_dashboard(severity: str, title: str, body: str) -> None:
@@ -273,6 +313,7 @@ def main() -> int:
     run("yahoo_feed", check_yahoo)
     run("disk_space", check_disk)
     run("resend_key", check_resend, env, hard=False)
+    run("signal_activity", check_signal_activity)
 
     hard_failures = [c for c in checks if not c[1] and c[3]]
     lines = [f"{'✅' if ok else ('⚠️' if not hard else '❌')} {name}: {detail}"
