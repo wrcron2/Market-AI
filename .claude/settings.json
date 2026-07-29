@@ -7,10 +7,45 @@
       "mcp__claude_ai_Notion__notion-create-pages",
       "Bash(echo \"exit=$?\")",
       "Bash(go vet *)",
-      "Bash(claude plugin *)"
+      "Bash(claude plugin *)",
+      "Read(//Users/ronleibovitch/Documents/Claude/Projects/Market-AI-Factory/**)",
+      "Bash(cp ../Market-AI/.claude/skills/go-backend-api-patterns.md .claude/skills/)",
+      "Bash(rm .claude/skills)",
+      "Bash(mkdir .claude/skills)",
+      "Bash(go mod *)",
+      "Bash(graphify query *)",
+      "Bash(graphify explain *)",
+      "Read(//Users/ronleibovitch/Documents/Claude/Projects/nof1-ai/src/services/**)",
+      "Bash(ssh oracle *)",
+      "Bash(awk '{print length, $0}' \"/Users/ronleibovitch/.claude/projects/-Users-ronleibovitch-Documents-Claude-Projects-Market-AI/116a622e-d1e6-4ddc-a58b-df5f4c1c473f/tool-results/b1ry2lk5b.txt\")",
+      "Read(//Users/ronleibovitch/Documents/Claude/Projects/nof1-ai/**)",
+      "Bash(node -e ' *)"
     ],
     "additionalDirectories": [
-      "/private/tmp/oracle-rescue"
+      "/private/tmp/oracle-rescue",
+      "/Users/ronleibovitch/Documents/Claude/Projects/Market-AI-Factory/backend"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ronleibovitch/.local/bin/graphify hook-guard search"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/ronleibovitch/.local/bin/graphify hook-guard read"
+          }
+        ]
+      }
     ]
   }
 }

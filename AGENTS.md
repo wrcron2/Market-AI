@@ -48,6 +48,30 @@ make docker-up  /  make docker-down
 - **Signal deduplication** has two gates: pipeline gate (`pending+open symbols` filtered in `main.py`) and execution gate (Alpaca position re-check).
 - **Trading mode** is toggled at runtime via dashboard → `/api/mode`; `TRADING_MODE` in `.env` is only the start default.
 
+## Production vs local — read before diagnosing anything
+
+**The local checkout is NOT the running system.** Production is a separate `git pull` of
+`main` at `/home/ubuntu/Market-AI` on the Oracle VM `129.159.146.157`, reached via
+`ssh oracle`, running **Python 3.12** in Docker.
+
+Files under `logs/` and `infra/db/marketflow.db` in this checkout are local artifacts and
+are usually **stale or empty**. `logs/ai-brain.log` is a fossil from April 2026, from a
+directory that no longer exists by that name — its Python 3.9 traceback describes this
+Mac, not production. Never conclude anything about system behavior from local logs or the
+local database; an empty local DB is the normal state, not evidence of anything.
+
+To check what the system is actually doing:
+
+```bash
+curl -s http://129.159.146.157:8080/api/positions
+curl -s http://129.159.146.157:8080/api/orders/pending   # liveness probe; /api/stats 500s on empty DB
+ssh oracle 'sudo docker ps'
+ssh oracle 'sudo docker logs market-ai-brain-1 --tail 50'
+```
+
+Full access, deploy, rollback, and verification procedure: the **`production-operations`**
+skill in `.claude/skills/production-operations/SKILL.md`.
+
 ## Deploy (Oracle host, not local)
 
 - `./scripts/deploy.sh [VERSION]` — builds + tags all images, writes `infra/versions/history` + `current`, runs `docker-compose up -d`. Default version `YYYYMMDD-HHMM`.
@@ -62,7 +86,8 @@ make docker-up  /  make docker-down
 - Agent prompts live in `ai-brain/agents/`; **repo scout pipeline prompts live in `agents/` (root)** but the scout now runs natively in the Go backend (`backend/internal/pipeline`) — the root `agents/*.md` files are reference-only, not the runtime.
 - Trading strategies have lifecycle gates; live status is in `CLAUDE.md` under "STATUS". Don't revive `momentum_breakout` (retired) without a new gate pass.
 - `frontend/dist/`, `node_modules/`, and `infra/db/*.db*` are gitignored — built/local state only.
-- OpenCode/Claude skills live in `.claude/skills/` (not `opencode.json`); notable: `model-router` (cheapest-capable-model dispatch), `product-notion-sync` (MANDATORY after main pushes, per `CLAUDE.md`), `marketflow-chief-pm` (PRD workflow).
+- OpenCode/Claude skills live in `.claude/skills/` (not `opencode.json`); notable: `model-router` (cheapest-capable-model dispatch), `product-notion-sync` (MANDATORY after main pushes, per `CLAUDE.md`), `marketflow-chief-pm` (PRD workflow), `production-operations` (Oracle deploy + how to inspect the live system).
+- **Cline** discovers skills only as `<dir>/SKILL.md` with `name:` + `description:` frontmatter. It reads `.claude/skills/` directly, so the directory-form skills (`model-router`, `run-market-ai`, `production-operations`) work as-is. The 8 flat `.md` skills are invisible to it, so `.cline/skills/<name>/SKILL.md` holds thin **pointer stubs** that tell Cline to read the real file. The stubs contain no content — never copy skill content into them, or the two will drift.
 
 ## Things that will trip an agent up
 

@@ -91,5 +91,5 @@ launch it as a smoke test.
   `backend/internal/db/db.go` and auto-creates on server start.
 - Vite port taken → `npx vite --port 3100 --strictPort` (what the driver does).
 - Deploying to production is NOT `npm run dev` — push to main, then see the
-  `devops-oracle` agent / CLAUDE.md (git pull + `sudo docker-compose up -d
-  --build` on the Oracle box).
+  `production-operations` skill (git pull + `sudo docker-compose up -d --build`
+  on the Oracle box).
