@@ -74,6 +74,27 @@ Note: the 5-ETF universe and single-winner relative-strength rotation are
 combination of that design with an unmonitored, unbounded dedup-blocked
 backlog and zero business-outcome alerting.
 
+## Ship Gate — merged is NOT shipped (added 2026-07-29, incident-driven)
+A fix that is not running in production is not a fix. On 2026-07-29 the pipeline
+was found to have made **zero trades for 12 days** (289 consecutive bars blocked,
+last signal 2026-07-13) with no alert — because commit `138bd06`, the
+business-outcome monitoring written specifically to catch that failure after the
+2026-07-25 incident, **sat on `main` for three days and was never deployed**.
+Production ran `96d60b3`. The safety net existed, was correct, and was useless.
+Rules:
+- Any push to `main` that changes runtime behavior MUST be deployed to Oracle
+  **in the same session**, and verified live — not left for "next deploy".
+  Docs-only pushes are exempt. If you genuinely cannot deploy (market open with
+  an open position, missing credentials), say so explicitly and record what is
+  pending; never leave it silent.
+- After deploying, verify the *behavior*, not the build: hit the endpoint, read
+  the log line, run `preflight.py`. A green `docker-compose up` proves nothing.
+- `preflight.py` has a `deploy_drift` check comparing the deployed HEAD to
+  `origin/main`. If it fails, production is running code that is not `main` —
+  treat it as a live incident, not a chore.
+- A trading app that is not trading is a dead app. Silence is a failure state.
+  `brain.bar_decision` logs one decision record per bar for exactly this reason.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

@@ -265,6 +265,43 @@ def check_signal_activity() -> tuple[bool, str]:
                   f"{pending} pending, last signal {last}")
 
 
+def check_deploy_drift(repo: str) -> tuple[bool, str]:
+    """
+    Is production actually running `main`?
+
+    On 2026-07-29 the pipeline was found to have traded nothing for 12 days
+    because commit 138bd06 — the business-outcome monitoring written to catch
+    exactly that — sat on main for three days undeployed. Every other check
+    passed the whole time. A correct fix that is not deployed is not a fix, so
+    drift between origin/main and the deployed HEAD is itself a failure.
+    """
+    import subprocess
+
+    def _git(*a: str) -> str:
+        return subprocess.run(["git", "-C", repo, *a], capture_output=True,
+                              text=True, timeout=60).stdout.strip()
+
+    try:
+        subprocess.run(["git", "-C", repo, "fetch", "origin", "main", "--quiet"],
+                       capture_output=True, text=True, timeout=120)
+        local  = _git("rev-parse", "HEAD")
+        remote = _git("rev-parse", "origin/main")
+    except Exception as exc:
+        return False, f"could not compare deployed HEAD to origin/main: {exc}"
+
+    if not local or not remote:
+        return False, "could not resolve HEAD or origin/main"
+    if local == remote:
+        return True, f"deployed HEAD matches origin/main ({local[:7]})"
+
+    behind = _git("rev-list", "--count", f"{local}..{remote}")
+    subjects = _git("log", "--oneline", f"{local}..{remote}") or "(no subjects)"
+    return False, (f"deployed {local[:7]} but origin/main is {remote[:7]} — production is "
+                   f"{behind or '?'} commit(s) BEHIND main. Undeployed: {subjects[:300]} "
+                   f"| Deploy with: cd {repo} && git pull origin main && "
+                   f"sudo docker-compose up -d --build")
+
+
 # ── Reporting ─────────────────────────────────────────────────────────────────
 
 def post_dashboard(severity: str, title: str, body: str) -> None:
@@ -314,6 +351,7 @@ def main() -> int:
     run("disk_space", check_disk)
     run("resend_key", check_resend, env, hard=False)
     run("signal_activity", check_signal_activity)
+    run("deploy_drift", check_deploy_drift, args.repo)
 
     hard_failures = [c for c in checks if not c[1] and c[3]]
     lines = [f"{'✅' if ok else ('⚠️' if not hard else '❌')} {name}: {detail}"

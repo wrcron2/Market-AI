@@ -73,6 +73,72 @@ log = structlog.get_logger("marketflow.brain")
 
 BAR_INTERVAL_SECONDS = 300    # 5-minute bar cycle
 PIPELINE_WORKERS     = 5      # parallel threads for the AI agent pipeline
+
+# ── Rotation guards (dual_momentum) ───────────────────────────────────────────
+# A challenger must beat the incumbent's momentum score by this margin before we
+# pay the spread to switch. Without it, two ETFs with near-identical scores would
+# thrash the account back and forth on noise.
+ROTATION_MIN_EDGE      = float(os.getenv("ROTATION_MIN_EDGE", "0.02"))   # 2%
+# Minimum time a position is held before rotation may close it. Stop-loss,
+# take-profit, and the SMA20 trend exit are NOT subject to this — they still fire
+# immediately via the position monitor.
+ROTATION_MIN_HOLD_DAYS = float(os.getenv("ROTATION_MIN_HOLD_DAYS", "3"))
+
+
+def rotation_decision(
+    candidate_symbol: str,
+    open_positions: list[dict[str, Any]],
+    scores: dict[str, float],
+    now: float | None = None,
+) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
+    """
+    Decide what dual_momentum should do about `candidate_symbol` given what is
+    currently held. Pure — no IO, no side effects — so every branch is testable.
+
+    Returns (decision, incumbent_or_None, detail) where decision is one of:
+      multi_position       — >1 open position; invalid for a 1-position strategy
+      incumbent_retained   — candidate is already held; hold it
+      blocked_unscoreable  — incumbent has no momentum score this bar
+      blocked_min_hold     — held for less than ROTATION_MIN_HOLD_DAYS
+      blocked_edge         — challenger does not beat incumbent by ROTATION_MIN_EDGE
+      rotate               — close incumbent, let the challenger through
+      enter                — nothing held; normal entry
+    """
+    if not open_positions:
+        return "enter", None, {}
+
+    open_symbols = {p["symbol"] for p in open_positions}
+
+    # Checked first and unconditionally: a corrupt multi-position state must
+    # always surface, even when the candidate happens to be one of the held
+    # symbols (which would otherwise mask it as a routine hold).
+    if len(open_positions) != 1:
+        return "multi_position", None, {"open_symbols": sorted(open_symbols)}
+
+    if candidate_symbol in open_symbols:
+        return "incumbent_retained", open_positions[0], {}
+
+    incumbent = open_positions[0]
+    inc_sym   = incumbent["symbol"]
+    inc_score = scores.get(inc_sym)
+    cand_score = scores.get(candidate_symbol, 0.0)
+    held_days = ((now if now is not None else time.time())
+                 - incumbent.get("entry_time", 0) / 1000) / 86_400
+    detail = {"incumbent": inc_sym, "candidate": candidate_symbol,
+              "incumbent_score": inc_score, "candidate_score": cand_score,
+              "held_days": held_days}
+
+    if inc_score is None:
+        # Never rotate on an unfair comparison.
+        return "blocked_unscoreable", incumbent, detail
+    if held_days < ROTATION_MIN_HOLD_DAYS:
+        detail["required_days"] = ROTATION_MIN_HOLD_DAYS
+        return "blocked_min_hold", incumbent, detail
+    required = inc_score * (1 + ROTATION_MIN_EDGE)
+    detail["required_score"] = required
+    if cand_score < required:
+        return "blocked_edge", incumbent, detail
+    return "rotate", incumbent, detail
 BACKEND_MODE_URL     = f"http://{os.getenv('BRAIN_HOST', '127.0.0.1')}:{os.getenv('GO_SERVER_PORT', '8080')}/api/mode"
 
 # Heartbeat file — written every loop iteration (including sleep ticks) so the
@@ -354,48 +420,173 @@ def main() -> None:
         # dual_momentum design: among candidates meeting entry criteria, trade only
         # the one with the highest 12-month momentum (close / sma_50 ratio as proxy).
         # This prevents simultaneous positions in correlated ETFs.
-        if len(snapshots) > 1:
-            def _momentum_score(s: dict) -> float:
-                close  = s.get("ohlcv", {}).get("close", 0)
-                sma50  = s.get("indicators", {}).get("sma_50", close)
-                high52 = s.get("indicators", {}).get("high_52w", close)
-                if close <= 0:
-                    return 0.0
-                # Score = proximity to 52wk high × trend strength
-                return (close / high52) * (close / sma50) if sma50 > 0 and high52 > 0 else 0.0
+        def _momentum_score(s: dict) -> float:
+            close  = s.get("ohlcv", {}).get("close", 0)
+            sma50  = s.get("indicators", {}).get("sma_50", close)
+            high52 = s.get("indicators", {}).get("high_52w", close)
+            if close <= 0:
+                return 0.0
+            # Score = proximity to 52wk high × trend strength
+            return (close / high52) * (close / sma50) if sma50 > 0 and high52 > 0 else 0.0
 
-            best = max(snapshots, key=_momentum_score)
-            if len(snapshots) > 1:
-                dropped_symbols = [s["symbol"] for s in snapshots if s["symbol"] != best["symbol"]]
-                for sym in dropped_symbols:
-                    emit_activity(backend_url, sym, "scan", "skip",
-                                  f"rotation: {best['symbol']} has stronger momentum — dual-momentum trades only the strongest ETF")
-                log.info("brain.relative_strength_rotation",
-                         selected=best["symbol"],
-                         dropped=dropped_symbols,
-                         note="trading strongest ETF only")
-                snapshots = [best]
+        scores = {s["symbol"]: _momentum_score(s) for s in snapshots}
+        if len(snapshots) > 1:
+            best = max(snapshots, key=lambda s: scores[s["symbol"]])
+            dropped_symbols = [s["symbol"] for s in snapshots if s["symbol"] != best["symbol"]]
+            for sym in dropped_symbols:
+                emit_activity(backend_url, sym, "scan", "skip",
+                              f"rotation: {best['symbol']} has stronger momentum — dual-momentum trades only the strongest ETF")
+            log.info("brain.relative_strength_rotation",
+                     selected=best["symbol"],
+                     dropped=dropped_symbols,
+                     note="trading strongest ETF only")
+            snapshots = [best]
         rotation_dropped_count = scanned_count - prefiltered_count - len(snapshots)
 
-        # ── Deduplication: skip symbols with a pending signal or open position ──
+        # ── Rotation vs incumbent — the switch decision ────────────────────────
+        # dual_momentum holds exactly ONE ETF: the strongest. Two cases arise here
+        # and before 2026-07-29 neither was handled correctly.
+        #
+        #   incumbent still strongest → hold. Previously this fell through to the
+        #     dedup gate and was logged as a duplicate drop, so 16 days of correct
+        #     holding was indistinguishable from a dead pipeline.
+        #   challenger stronger       → rotate: close the incumbent, let the
+        #     challenger through. Previously the challenger was simply bought and
+        #     the incumbent kept, accumulating correlated ETFs — the opposite of
+        #     what the rotation comment above claims.
+        #
+        # Guarded by ROTATION_MIN_EDGE and ROTATION_MIN_HOLD_DAYS so near-tied
+        # scores cannot churn the account.
         pending_symbols = position_store.get_pending_symbols()
-        open_symbols    = position_store.get_open_symbols()
-        blocked_symbols = pending_symbols | open_symbols
+        open_positions  = position_store.list_open_positions()
+        open_symbols    = {p["symbol"] for p in open_positions}
+        decision        = "no_candidate"
+        # Mirrors open_symbols but is updated when a rotation actually closes a
+        # position, so the per-bar decision record reports post-decision state
+        # rather than showing a just-closed symbol as still held.
+        held_now        = set(open_symbols)
+
+        if snapshots and open_symbols:
+            cand_sym = snapshots[0]["symbol"]
+            verdict, incumbent, detail = rotation_decision(cand_sym, open_positions, scores)
+
+            if verdict == "multi_position":
+                decision = "rotation_skipped_multi_position"
+                log.warning("brain.rotation_skipped_multi_position", candidate=cand_sym, **detail,
+                            note="single-position strategy holds >1 position — DB may be desynced from broker")
+                notifier.high(
+                    "Multi-position state detected",
+                    f"dual_momentum is a single-position strategy but the store reports "
+                    f"{len(open_positions)} open: {detail['open_symbols']}. Rotation suspended "
+                    f"until reconciled with the broker.",
+                )
+                snapshots = []
+
+            elif verdict == "incumbent_retained":
+                decision = "incumbent_retained"
+                emit_activity(backend_url, cand_sym, "scan", "hold",
+                              f"holding {cand_sym} — still the strongest ETF; dual-momentum stays in its winner")
+                log.info("brain.incumbent_retained", symbol=cand_sym,
+                         note="strongest ETF is already held — correct action is to hold")
+                snapshots = []
+
+            elif verdict.startswith("blocked_"):
+                decision = f"rotation_{verdict}"
+                log.info("brain.rotation_blocked", reason=verdict, **detail)
+                snapshots = []
+
+            else:  # verdict == "rotate"
+                inc_sym   = incumbent["symbol"]
+                held_days = detail["held_days"]
+                decision  = "rotated"
+                log.info("brain.rotation_exit", **detail)
+                try:
+                    # Exit price and P&L live on the BROKER record, not the
+                    # backend DB row — fetch before closing or the trade is
+                    # persisted with exit_price=0 and realized_pnl=0.
+                    live = alpaca.get_position(inc_sym)
+
+                    if live is None:
+                        # Already flat at the broker — the position monitor's
+                        # stop-loss/take-profit/SMA20 exit almost certainly won
+                        # the race. Re-issuing the close would 404 and raise,
+                        # stranding the DB row OPEN forever. Reconcile instead.
+                        log.warning("brain.rotation_exit_already_flat", incumbent=inc_sym,
+                                    note="broker reports no position; reconciling DB row only")
+                        exit_price, realized = 0.0, 0.0
+                    else:
+                        exit_price = float(live["current_price"])
+                        realized   = float(live["unrealized_pl"])
+                        alpaca.close_position(inc_sym, signal_id=incumbent["id"])
+
+                    # close_position() swallows its own exceptions and reports
+                    # via return value — an unchecked False here would leave the
+                    # broker flat while the DB still shows OPEN, and we would
+                    # wrongly report success and release the buy leg.
+                    if not position_store.close_position(
+                        signal_id=incumbent["id"],
+                        exit_price=exit_price,
+                        realized_pnl=realized,
+                        reason=f"rotation_exit ({cand_sym} stronger)",
+                    ):
+                        decision = "rotation_db_desync"
+                        log.error("brain.rotation_db_desync", incumbent=inc_sym,
+                                  candidate=cand_sym,
+                                  note="broker closed but backend did not record it")
+                        notifier.high(
+                            "Rotation DB desync",
+                            f"{inc_sym} was closed at the broker but the backend did not "
+                            f"record it. DB and broker are out of sync — reconcile before "
+                            f"trading resumes. Buy leg for {cand_sym} suppressed.",
+                        )
+                        snapshots = []
+                    else:
+                        held_now.discard(inc_sym)
+                        emit_activity(backend_url, inc_sym, "execute", "sell",
+                                      f"rotation: closed {inc_sym} — {cand_sym} now has stronger momentum")
+                        notifier.medium(
+                            "Rotation exit",
+                            f"Closed {inc_sym} — {cand_sym} took the momentum lead "
+                            f"(held {held_days:.1f}d).",
+                        )
+                except Exception as exc:
+                    # Exit failed — do NOT let the buy leg through, or the
+                    # account would end up holding both ETFs.
+                    decision = "rotation_exit_failed"
+                    log.error("brain.rotation_exit_failed", incumbent=inc_sym,
+                              candidate=cand_sym, error=str(exc))
+                    notifier.high(
+                        "Rotation exit FAILED",
+                        f"Could not close {inc_sym} while rotating into {cand_sym}: {exc}. "
+                        f"Buy leg suppressed to avoid holding both.",
+                    )
+                    snapshots = []
+        elif snapshots:
+            decision = "entering"
+
+        # ── Deduplication: skip symbols with a pending signal awaiting approval ─
+        # Open positions are handled by the rotation block above; this gate now
+        # only prevents stacking a second signal on one already awaiting a click.
         dedup_dropped_count = 0
-        if blocked_symbols:
+        if pending_symbols and snapshots:
             before_dedup = len(snapshots)
             for s in snapshots:
-                if s["symbol"] in blocked_symbols:
-                    reason = "an open position" if s["symbol"] in open_symbols else "a pending signal"
+                if s["symbol"] in pending_symbols:
                     emit_activity(backend_url, s["symbol"], "scan", "skip",
-                                  f"dedup: already have {reason} in {s['symbol']} — no duplicate trades")
-            snapshots = [s for s in snapshots if s["symbol"] not in blocked_symbols]
+                                  f"dedup: {s['symbol']} already has a signal awaiting Green Light approval")
+            snapshots = [s for s in snapshots if s["symbol"] not in pending_symbols]
             dedup_dropped_count = before_dedup - len(snapshots)
-            log.info(
-                "brain.dedup_filter",
-                blocked=sorted(blocked_symbols),
-                dropped=dedup_dropped_count,
-            )
+            if dedup_dropped_count:
+                decision = "dedup_pending"
+                log.info("brain.dedup_filter", blocked=sorted(pending_symbols),
+                         dropped=dedup_dropped_count)
+
+        # ── Decision throughput — one record per bar, always ───────────────────
+        # A trading system's health is decision throughput, not uptime. Both the
+        # 2026-07-25 and 2026-07-29 incidents presented as "everything green, zero
+        # trades". This line makes a non-deciding pipeline greppable and alertable.
+        log.info("brain.bar_decision", decision=decision, bar=bar_count,
+                 candidates=len(snapshots), held=sorted(held_now) or None)
 
         # ── Per-bar heartbeat: always visible on the dashboard, even when every
         # symbol was filtered out — proves the brain is alive and explains why

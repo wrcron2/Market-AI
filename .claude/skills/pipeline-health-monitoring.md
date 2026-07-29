@@ -17,6 +17,32 @@ A system can pass every liveness check for weeks while producing zero economic
 value. Liveness and correctness are different signals. Conflating them is how
 this incident stayed invisible.
 
+## It happened again four days later — and the reason matters more
+
+On 2026-07-29 the pipeline was found to have made **zero trades for 12 days**
+(289 consecutive bars blocked, last signal 2026-07-13). The check that would have
+caught it — `check_signal_activity` — had already been written on 2026-07-26 in
+response to the incident above. It was correct. It was on `main`. **It had never
+been deployed.** Production ran the previous commit, whose preflight had 10
+checks instead of 11, and cheerfully emailed "PASSED — system ready for market
+open" every trading morning.
+
+Two lessons, and the second is the one people skip:
+
+1. **A monitoring gap is not closed when the code is written. It is closed when
+   the code is running in production and you have watched it fire.** See the Ship
+   Gate in `CLAUDE.md` and the `production-operations` skill. `preflight.py` now
+   has a `deploy_drift` check that fails when the deployed HEAD differs from
+   `origin/main`, precisely so this cannot recur silently.
+2. **Monitor decisions, not just outputs.** The root cause was a rotation/dedup
+   deadlock: the strongest ETF was also the held one, so the candidate was
+   selected and then immediately dropped, every bar, forever. Nothing was broken;
+   nothing was *deciding*. `main.py` now emits `brain.bar_decision` once per bar
+   with an explicit verdict (`incumbent_retained`, `rotated`, `blocked_*`,
+   `no_candidate`, `entering`). A trading system's health metric is **decision
+   throughput**, not uptime — a system making zero decisions is failing no matter
+   how many checks are green.
+
 ## The rule
 
 **Every pipeline stage that produces an economically meaningful output
