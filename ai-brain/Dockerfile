@@ -9,5 +9,4 @@ RUN python -m grpc_tools.protoc \
     --grpc_python_out=./proto \
     signals.proto
 ENV PYTHONUNBUFFERED=1
-EXPOSE 50052
 CMD ["python", "main.py"]

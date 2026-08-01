@@ -44,3 +44,4 @@ infra/versions/switch-request
 
 # graphify — regeneratable knowledge graph build output (run /graphify to rebuild)
 graphify-out/
+e2e/node_modules/

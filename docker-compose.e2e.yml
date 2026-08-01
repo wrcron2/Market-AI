@@ -1,0 +1,18 @@
+# Spike 4 override: adds an in-network Playwright runner for unattended e2e
+# verification. Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+# The playwright container joins marketflow-net and can reach
+#   http://frontend:3000  (UI, nginx)   http://backend:8080  (API)
+# Repo ./e2e is mounted at /work — put test scripts there, then
+#   docker compose ... exec playwright bash -lc 'cd /work && ...'
+services:
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.55.0-jammy
+    working_dir: /work
+    volumes:
+      - ./e2e:/work
+    command: ["bash", "-lc", "sleep infinity"]
+    depends_on:
+      - frontend
+      - backend
+    restart: "no"

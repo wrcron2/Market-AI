@@ -18,7 +18,14 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
-      - brain
+      brain:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
   # ─── Python AI Brain ─────────────────────────────────────────────────────────
@@ -27,14 +34,18 @@ services:
       context: ./ai-brain
       dockerfile: Dockerfile
     image: market-ai-brain:${APP_VERSION:-latest}
-    ports:
-      - "${BRAIN_GRPC_PORT:-50052}:50052"
     env_file: .env
     volumes:
       - ./logs:/app/logs             # heartbeat file for host watchdog
     # NOTE: Ollama must be running on the host at OLLAMA_HOST
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import os,sys,time; p='/app/logs/brain_heartbeat.json'; sys.exit(0 if os.path.exists(p) and time.time()-os.path.getmtime(p)<120 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
 
   # ─── React Frontend ───────────────────────────────────────────────────────────
@@ -47,7 +58,14 @@ services:
       - "3000:3000"
     env_file: .env
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
 networks:
