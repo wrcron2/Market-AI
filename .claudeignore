@@ -1,0 +1,10 @@
+# keep generated/heavy state out of Claude Code context (prompt-cache protection)
+graph.json
+graphify-out/
+logs/
+infra/db/
+infra/versions/
+node_modules/
+dist/
+e2e/node_modules/
+backtest_results/
