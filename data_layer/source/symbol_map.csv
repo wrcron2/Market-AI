@@ -1,0 +1,3 @@
+old_symbol,new_symbol,effective_from,effective_to,source,note
+BK,BNY,2026-05-22,,wikipedia-snapshot revid 1355474050,"Verified ticker-only rename: identical company name (BNY Mellon) across the transition; index continuity; Yahoo likewise serves pre-rename history under BNY."
+HON,HONA,2026-06-29,,wikipedia-snapshot revid 1361766691,"INFERRED index continuity (Honeywell -> Honeywell Aerospace): Yahoo lists HONA as a new short-history symbol and keeps HON trading, so this is likely a separation, not a pure rename. Do not stitch HON/HONA price series without verifying terms."
