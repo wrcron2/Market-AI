@@ -52,32 +52,32 @@ export function InvestedStocks() {
   const totalValue = positions.reduce((s, p) => s + parseFloat(p.market_value || '0'), 0)
 
   return (
-    <div style={{ background: '#131720', border: '1px solid #1e293b', borderRadius: 14, padding: '18px 20px' }}>
+    <div style={{ background: '#161826', border: '1px solid #31333d', borderRadius: 14, padding: '18px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Briefcase size={16} style={{ color: '#3b82f6' }} />
-          <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>
+          <Briefcase size={16} style={{ color: '#968ae0' }} />
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#e9e9ed' }}>
             Invested Stocks
           </span>
-          <span style={{ background: '#1e293b', color: '#94a3b8', borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
+          <span style={{ background: '#31333d', color: '#9397ab', borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>
             {positions.length} open position{positions.length === 1 ? '' : 's'}
           </span>
         </div>
         <div style={{ display: 'flex', gap: 14, fontSize: 12, flexWrap: 'wrap' }}>
-          <span style={{ color: '#64748b' }}>
-            Invested: <b style={{ color: '#e2e8f0' }}>{fmtUsd(totalValue)}</b>
+          <span style={{ color: '#75798c' }}>
+            Invested: <b style={{ color: '#e9e9ed' }}>{fmtUsd(totalValue)}</b>
           </span>
-          <span style={{ color: '#64748b' }}>
+          <span style={{ color: '#75798c' }}>
             Unrealized P&L:{' '}
-            <b style={{ color: totalPL >= 0 ? '#22c55e' : '#ef4444' }}>
+            <b style={{ color: totalPL >= 0 ? '#b5abfc' : '#d97b84' }}>
               {totalPL >= 0 ? '+' : ''}{fmtUsd(totalPL)}
             </b>
           </span>
           {account && (
-            <span style={{ color: '#64748b' }}>
-              Cash: <b style={{ color: parseFloat(account.cash) < 0 ? '#f59e0b' : '#e2e8f0' }}>{fmtUsd(parseFloat(account.cash))}</b>
+            <span style={{ color: '#75798c' }}>
+              Cash: <b style={{ color: parseFloat(account.cash) < 0 ? '#d9a05b' : '#e9e9ed' }}>{fmtUsd(parseFloat(account.cash))}</b>
               {parseFloat(account.cash) < 0 && (
-                <span style={{ color: '#f59e0b', marginLeft: 4 }} title="Negative cash = positions bought on margin">
+                <span style={{ color: '#d9a05b', marginLeft: 4 }} title="Negative cash = positions bought on margin">
                   (margin)
                 </span>
               )}
@@ -86,18 +86,18 @@ export function InvestedStocks() {
         </div>
       </div>
 
-      {loading && <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>Loading positions…</p>}
+      {loading && <p style={{ color: '#75798c', fontSize: 13, margin: 0 }}>Loading positions…</p>}
       {!loading && positions.length === 0 && (
-        <p style={{ color: '#64748b', fontSize: 13, margin: 0 }}>
+        <p style={{ color: '#75798c', fontSize: 13, margin: 0 }}>
           No open positions — the account is fully in cash.
         </p>
       )}
 
       {positions.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, color: '#cbd5e1' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, color: '#d6d7de' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #1e293b', color: '#64748b', textAlign: 'left' }}>
+              <tr style={{ borderBottom: '1px solid #31333d', color: '#75798c', textAlign: 'left' }}>
                 {['Symbol', 'Side', 'Qty', 'Entry', 'Current', 'Market Value', 'Unrealized P&L', 'Today'].map(h => (
                   <th key={h} style={{ padding: '6px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
@@ -108,11 +108,11 @@ export function InvestedStocks() {
                 const pl = parseFloat(p.unrealized_pl || '0')
                 const plPct = parseFloat(p.unrealized_plpc || '0') * 100
                 const today = parseFloat(p.change_today || '0') * 100
-                const plColor = pl >= 0 ? '#22c55e' : '#ef4444'
+                const plColor = pl >= 0 ? '#b5abfc' : '#d97b84'
                 return (
-                  <tr key={p.symbol} style={{ borderBottom: '1px solid #0f172a' }}>
-                    <td style={{ padding: '7px 10px', fontWeight: 700, color: '#93c5fd' }}>{p.symbol}</td>
-                    <td style={{ padding: '7px 10px', textTransform: 'uppercase', color: '#94a3b8', fontSize: 11 }}>{p.side}</td>
+                  <tr key={p.symbol} style={{ borderBottom: '1px solid #262833' }}>
+                    <td style={{ padding: '7px 10px', fontWeight: 700, color: '#c8bef6' }}>{p.symbol}</td>
+                    <td style={{ padding: '7px 10px', textTransform: 'uppercase', color: '#9397ab', fontSize: 11 }}>{p.side}</td>
                     <td style={{ padding: '7px 10px' }}>{parseFloat(p.qty).toLocaleString()}</td>
                     <td style={{ padding: '7px 10px' }}>{fmtUsd(parseFloat(p.avg_entry_price))}</td>
                     <td style={{ padding: '7px 10px' }}>{fmtUsd(parseFloat(p.current_price))}</td>
@@ -123,7 +123,7 @@ export function InvestedStocks() {
                         {pl >= 0 ? '+' : ''}{fmtUsd(pl)} ({plPct >= 0 ? '+' : ''}{plPct.toFixed(2)}%)
                       </span>
                     </td>
-                    <td style={{ padding: '7px 10px', color: today >= 0 ? '#22c55e' : '#ef4444', fontSize: 12 }}>
+                    <td style={{ padding: '7px 10px', color: today >= 0 ? '#b5abfc' : '#d97b84', fontSize: 12 }}>
                       {today >= 0 ? '+' : ''}{today.toFixed(2)}%
                     </td>
                   </tr>

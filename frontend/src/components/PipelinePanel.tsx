@@ -53,10 +53,10 @@ const AGENT_MODELS: { value: AgentModel; label: string }[] = [
 type RepoFilter = 'all' | 'new' | 'good' | 'rejected' | 'researched'
 
 const STATUS_BADGE: Record<string, { bg: string; color: string; border: string }> = {
-  new:        { bg: '#1e3a5f', color: '#60a5fa', border: '#3b82f640' },
-  good:       { bg: '#14532d', color: '#22c55e', border: '#22c55e40' },
-  rejected:   { bg: '#450a0a', color: '#ef4444', border: '#ef444440' },
-  researched: { bg: '#3b0764', color: '#a855f7', border: '#a855f740' },
+  new:        { bg: '#2c2848', color: '#a89cee', border: '#968ae040' },
+  good:       { bg: '#2b2838', color: '#b5abfc', border: '#b5abfc40' },
+  rejected:   { bg: '#3a262b', color: '#d97b84', border: '#d97b8440' },
+  researched: { bg: '#2c2848', color: '#968ae0', border: '#968ae040' },
 }
 
 function fmtDate(iso: string | null | undefined): string {
@@ -242,13 +242,13 @@ export function PipelinePanel() {
       {/* Deprecation: the pipeline now lives in Market-AI-Factory (P4 migration). */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16,
-        background: '#422006', border: '1px solid #f59e0b40', borderRadius: 8,
-        padding: '10px 14px', color: '#fbbf24', fontSize: 12.5,
+        background: '#38301f', border: '1px solid #d9a05b40', borderRadius: 8,
+        padding: '10px 14px', color: '#e0b578', fontSize: 12.5,
       }}>
         <span style={{ fontWeight: 700 }}>Moved:</span>
         <span>
           the Repo Scout &amp; Research pipeline has migrated to the{' '}
-          <a href="http://129.159.146.157:9000/pipeline" style={{ color: '#fbbf24', fontWeight: 700 }}>
+          <a href="http://129.159.146.157:9000/pipeline" style={{ color: '#e0b578', fontWeight: 700 }}>
             Market&nbsp;AI&nbsp;·&nbsp;Factory
           </a>{' '}
           dashboard, where approved repos can be onboarded as trading products. This tab keeps
@@ -261,20 +261,20 @@ export function PipelinePanel() {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Database size={18} style={{ color: '#a855f7' }} />
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>
+          <Database size={18} style={{ color: '#968ae0' }} />
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#e9e9ed' }}>
             Repo Scout & Research Pipeline
           </h2>
           {repos.length > 0 && (
             <span style={{
-              background: '#1e293b', color: '#94a3b8',
+              background: '#31333d', color: '#9397ab',
               borderRadius: 10, padding: '2px 8px', fontSize: 11, fontWeight: 600,
             }}>{repos.length} repos</span>
           )}
         </div>
         <button onClick={() => { loadRepos(); loadStatus(); loadLogs() }} style={{
-          background: 'transparent', border: '1px solid #334155',
-          color: '#94a3b8', borderRadius: 6, padding: '4px 10px',
+          background: 'transparent', border: '1px solid #3f424d',
+          color: '#9397ab', borderRadius: 6, padding: '4px 10px',
           cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4,
         }}>
           <RefreshCw size={11} /> Refresh
@@ -283,7 +283,7 @@ export function PipelinePanel() {
 
       {/* ── Flow Diagram ──────────────────────────────────────────────────────── */}
       <div style={{
-        background: '#0d1117', border: '1px solid #1e293b',
+        background: '#161826', border: '1px solid #31333d',
         borderRadius: 14, padding: '24px', marginBottom: 28, overflowX: 'auto',
       }}>
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 0, minWidth: 680 }}>
@@ -293,7 +293,7 @@ export function PipelinePanel() {
             title="Scout Agent"
             subtitle="GitHub search · dedupes · classifies"
             running={scout?.running ?? false}
-            runColor="#3b82f6"
+            runColor="#968ae0"
             meta={scout?.last_run ? `Last run ${timeAgo(scout.last_run)}` : 'Never run'}
             schedule={scout?.schedule}
           />
@@ -301,22 +301,22 @@ export function PipelinePanel() {
 
           {/* Supabase DB box */}
           <div style={{
-            background: '#1e293b', borderRadius: 10, border: '1px solid #334155',
+            background: '#31333d', borderRadius: 10, border: '1px solid #3f424d',
             padding: '16px 20px', flex: '1.4 1 0', display: 'flex', flexDirection: 'column', gap: 8,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 20 }}>🗄️</span>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#e9e9ed' }}>
                 github_repo_scout
               </div>
             </div>
-            <div style={{ fontSize: 11, color: '#475569' }}>SQL (SQLite) · status lifecycle</div>
+            <div style={{ fontSize: 11, color: '#75798c' }}>SQL (SQLite) · status lifecycle</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {[
-                { label: 'new',        count: counts.new,        color: '#60a5fa' },
-                { label: 'good',       count: counts.good,       color: '#22c55e' },
-                { label: 'researched', count: counts.researched, color: '#a855f7' },
-                { label: 'rejected',   count: counts.rejected,   color: '#ef4444' },
+                { label: 'new',        count: counts.new,        color: '#a89cee' },
+                { label: 'good',       count: counts.good,       color: '#b5abfc' },
+                { label: 'researched', count: counts.researched, color: '#968ae0' },
+                { label: 'rejected',   count: counts.rejected,   color: '#d97b84' },
               ].map(({ label, count, color }) => (
                 <span key={label} style={{
                   fontSize: 10, fontWeight: 700, padding: '1px 7px',
@@ -327,7 +327,7 @@ export function PipelinePanel() {
                 </span>
               ))}
             </div>
-            <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>
+            <div style={{ fontSize: 10, color: '#75798c', marginTop: 2 }}>
               new → good → researched (or rejected)
             </div>
           </div>
@@ -339,22 +339,22 @@ export function PipelinePanel() {
             title="Research Agent"
             subtitle="Deep analysis · writes Notion page"
             running={research?.running ?? false}
-            runColor="#22c55e"
+            runColor="#b5abfc"
             meta={research?.last_run ? `Last run ${timeAgo(research.last_run)}` : 'Never run'}
           />
           <Arrow />
 
           {/* Notion box */}
           <div style={{
-            background: '#1e293b', borderRadius: 10, border: '1px solid #334155',
+            background: '#31333d', borderRadius: 10, border: '1px solid #3f424d',
             padding: '16px 20px', minWidth: 110, display: 'flex',
             flexDirection: 'column', alignItems: 'center', gap: 6, justifyContent: 'center',
           }}>
             <span style={{ fontSize: 24 }}>📝</span>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>Reports</div>
-            <div style={{ fontSize: 11, color: '#475569', textAlign: 'center' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#e9e9ed' }}>Reports</div>
+            <div style={{ fontSize: 11, color: '#75798c', textAlign: 'center' }}>
               dashboard + Notion<br/>
-              <span style={{ color: '#a855f7', fontWeight: 600 }}>{counts.researched} written</span>
+              <span style={{ color: '#968ae0', fontWeight: 600 }}>{counts.researched} written</span>
             </div>
           </div>
         </div>
@@ -362,12 +362,12 @@ export function PipelinePanel() {
 
       {/* ── Repo Table ────────────────────────────────────────────────────────── */}
       <div style={{
-        background: '#131720', border: '1px solid #1e293b', borderRadius: 14, marginBottom: 24,
+        background: '#161826', border: '1px solid #31333d', borderRadius: 14, marginBottom: 24,
       }}>
         {/* Filter tabs */}
         <div style={{
           display: 'flex', gap: 2, padding: '12px 16px 0',
-          borderBottom: '1px solid #1e293b', flexWrap: 'wrap',
+          borderBottom: '1px solid #31333d', flexWrap: 'wrap',
         }}>
           {([
             ['all', 'All'],
@@ -380,10 +380,10 @@ export function PipelinePanel() {
             const isActive = filter === key
             return (
               <button key={key} onClick={() => setFilter(key)} style={{
-                background: isActive ? (cfg?.bg ?? '#1e293b') : 'transparent',
-                color: isActive ? (cfg?.color ?? '#e2e8f0') : '#64748b',
+                background: isActive ? (cfg?.bg ?? '#31333d') : 'transparent',
+                color: isActive ? (cfg?.color ?? '#e9e9ed') : '#75798c',
                 border: isActive
-                  ? `1px solid ${cfg?.border ?? '#334155'}`
+                  ? `1px solid ${cfg?.border ?? '#3f424d'}`
                   : '1px solid transparent',
                 borderRadius: '6px 6px 0 0', padding: '6px 14px',
                 fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all .15s',
@@ -401,8 +401,8 @@ export function PipelinePanel() {
         {error && (
           <div style={{
             margin: '12px 16px', padding: '10px 14px',
-            background: '#450a0a', border: '1px solid #ef444444',
-            borderRadius: 8, color: '#ef4444', fontSize: 12,
+            background: '#3a262b', border: '1px solid #d97b8444',
+            borderRadius: 8, color: '#d97b84', fontSize: 12,
           }}>
             {error}
           </div>
@@ -412,11 +412,11 @@ export function PipelinePanel() {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #1e293b' }}>
+              <tr style={{ borderBottom: '1px solid #31333d' }}>
                 {['Repository', 'Stars', 'Language', 'Status', 'First Seen', 'Report'].map(col => (
                   <th key={col} style={{
                     padding: '10px 16px', textAlign: 'left',
-                    fontSize: 11, fontWeight: 600, color: '#64748b',
+                    fontSize: 11, fontWeight: 600, color: '#75798c',
                     textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
                   }}>{col}</th>
                 ))}
@@ -425,14 +425,14 @@ export function PipelinePanel() {
             <tbody>
               {loadingRepos && (
                 <tr>
-                  <td colSpan={6} style={{ padding: '32px 16px', textAlign: 'center', color: '#475569' }}>
+                  <td colSpan={6} style={{ padding: '32px 16px', textAlign: 'center', color: '#75798c' }}>
                     Loading repos…
                   </td>
                 </tr>
               )}
               {!loadingRepos && filteredRepos.length === 0 && !error && (
                 <tr>
-                  <td colSpan={6} style={{ padding: '48px 16px', textAlign: 'center', color: '#475569' }}>
+                  <td colSpan={6} style={{ padding: '48px 16px', textAlign: 'center', color: '#75798c' }}>
                     {filter === 'all'
                       ? 'No repos yet — run the Scout Agent to start discovering repos.'
                       : `No repos with status "${filter}".`}
@@ -444,8 +444,8 @@ export function PipelinePanel() {
                 return (
                   <tr
                     key={repo.id}
-                    style={{ borderBottom: i < filteredRepos.length - 1 ? '1px solid #1a2030' : undefined }}
-                    onMouseEnter={e => (e.currentTarget.style.background = '#1a2030')}
+                    style={{ borderBottom: i < filteredRepos.length - 1 ? '1px solid #1d1f2c' : undefined }}
+                    onMouseEnter={e => (e.currentTarget.style.background = '#1d1f2c')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
                     <td style={{ padding: '12px 16px', maxWidth: 300 }}>
@@ -454,7 +454,7 @@ export function PipelinePanel() {
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
-                          color: '#93c5fd', fontWeight: 600, textDecoration: 'none', fontSize: 13,
+                          color: '#c8bef6', fontWeight: 600, textDecoration: 'none', fontSize: 13,
                           display: 'inline-flex', alignItems: 'center', gap: 5,
                         }}
                       >
@@ -463,7 +463,7 @@ export function PipelinePanel() {
                       </a>
                       {repo.description && (
                         <div style={{
-                          color: '#475569', fontSize: 11, marginTop: 3,
+                          color: '#75798c', fontSize: 11, marginTop: 3,
                           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                           maxWidth: 280,
                         }}>
@@ -471,13 +471,13 @@ export function PipelinePanel() {
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
+                    <td style={{ padding: '12px 16px', color: '#9397ab', whiteSpace: 'nowrap' }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <Star size={11} style={{ color: '#eab308', flexShrink: 0 }} />
+                        <Star size={11} style={{ color: '#d9a05b', flexShrink: 0 }} />
                         {repo.stars.toLocaleString()}
                       </span>
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#64748b', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    <td style={{ padding: '12px 16px', color: '#75798c', whiteSpace: 'nowrap', fontSize: 12 }}>
                       {repo.language ?? '—'}
                     </td>
                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
@@ -488,7 +488,7 @@ export function PipelinePanel() {
                         {repo.status}
                       </span>
                     </td>
-                    <td style={{ padding: '12px 16px', color: '#475569', whiteSpace: 'nowrap', fontSize: 12 }}>
+                    <td style={{ padding: '12px 16px', color: '#75798c', whiteSpace: 'nowrap', fontSize: 12 }}>
                       {fmtDate(repo.first_seen_at)}
                     </td>
                     <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
@@ -497,7 +497,7 @@ export function PipelinePanel() {
                           <button
                             onClick={() => openReport(repo)}
                             style={{
-                              background: '#3b0764', color: '#a855f7', border: '1px solid #a855f740',
+                              background: '#2c2848', color: '#968ae0', border: '1px solid #968ae040',
                               borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600,
                               cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
                             }}
@@ -508,22 +508,22 @@ export function PipelinePanel() {
                           researchingIds.has(repo.id) ? (
                             <span style={{
                               display: 'inline-flex', alignItems: 'center', gap: 6,
-                              color: '#64748b', fontSize: 11, fontWeight: 600,
+                              color: '#75798c', fontSize: 11, fontWeight: 600,
                             }}>
-                              <RunningDot running color="#38bdf8" /> Researching…
+                              <RunningDot running color="#b5abfc" /> Researching…
                             </span>
                           ) : (
                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
                               <span style={{
                                 display: 'inline-flex', alignItems: 'center', gap: 4,
-                                color: '#64748b', fontSize: 11, fontWeight: 600,
+                                color: '#75798c', fontSize: 11, fontWeight: 600,
                               }}>
                                 <Clock size={11} /> Pending research
                               </span>
                               <button
                                 onClick={() => researchOne(repo)}
                                 style={{
-                                  background: '#082f49', color: '#38bdf8', border: '1px solid #38bdf840',
+                                  background: '#262838', color: '#b5abfc', border: '1px solid #b5abfc40',
                                   borderRadius: 6, padding: '3px 10px', fontSize: 11, fontWeight: 600,
                                   cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
                                 }}
@@ -533,7 +533,7 @@ export function PipelinePanel() {
                             </span>
                           )
                         ) : (
-                          <span style={{ color: '#334155', fontSize: 12 }}>—</span>
+                          <span style={{ color: '#3f424d', fontSize: 12 }}>—</span>
                         )}
                         {repo.research_notion_url && (
                           <a
@@ -541,7 +541,7 @@ export function PipelinePanel() {
                             target="_blank"
                             rel="noopener noreferrer"
                             style={{
-                              color: '#a855f7', fontSize: 12, textDecoration: 'none',
+                              color: '#968ae0', fontSize: 12, textDecoration: 'none',
                               display: 'inline-flex', alignItems: 'center', gap: 4,
                             }}
                           >
@@ -571,7 +571,7 @@ export function PipelinePanel() {
           running={scout?.running ?? false}
           loading={scoutLoading}
           onRun={runScout}
-          btnColor="#3b82f6"
+          btnColor="#968ae0"
           btnTextColor="#fff"
           lastRun={scout?.last_run}
           extra={`Schedule: ${scout?.schedule ?? 'cron 6h'}`}
@@ -583,11 +583,11 @@ export function PipelinePanel() {
         <RunControl
           icon="🧠"
           title="Research Agent"
-          description={<>Picks up <em style={{ color: '#22c55e' }}>good</em> repos, deep-analyses their README + metadata, saves a report you can open right here (and to Notion when configured), then marks them <em style={{ color: '#a855f7' }}>researched</em>.</>}
+          description={<>Picks up <em style={{ color: '#b5abfc' }}>good</em> repos, deep-analyses their README + metadata, saves a report you can open right here (and to Notion when configured), then marks them <em style={{ color: '#968ae0' }}>researched</em>.</>}
           running={research?.running ?? false}
           loading={researchLoading}
           onRun={runResearch}
-          btnColor="#22c55e"
+          btnColor="#b5abfc"
           btnTextColor="#000"
           lastRun={research?.last_run}
           extra="Triggers on: status='good' AND not yet researched"
@@ -598,29 +598,29 @@ export function PipelinePanel() {
 
       {/* ── Log Output ───────────────────────────────────────────────────────── */}
       <div style={{
-        background: '#0d1117', border: '1px solid #1e293b', borderRadius: 12, overflow: 'hidden',
+        background: '#161826', border: '1px solid #31333d', borderRadius: 12, overflow: 'hidden',
       }}>
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '10px 16px', borderBottom: '1px solid #1e293b',
+          padding: '10px 16px', borderBottom: '1px solid #31333d',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Terminal size={14} style={{ color: '#64748b' }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>
+            <Terminal size={14} style={{ color: '#75798c' }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: '#9397ab' }}>
               logs/scout.log — last 50 lines
             </span>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={loadLogs} style={{
-              background: 'transparent', border: '1px solid #1e293b',
-              color: '#475569', borderRadius: 4, padding: '2px 8px',
+              background: 'transparent', border: '1px solid #31333d',
+              color: '#75798c', borderRadius: 4, padding: '2px 8px',
               cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3,
             }}>
               <RefreshCw size={10} /> Refresh
             </button>
             <button onClick={clearLogs} style={{
-              background: 'transparent', border: '1px solid #1e293b',
-              color: '#475569', borderRadius: 4, padding: '2px 8px',
+              background: 'transparent', border: '1px solid #31333d',
+              color: '#75798c', borderRadius: 4, padding: '2px 8px',
               cursor: 'pointer', fontSize: 11, display: 'flex', alignItems: 'center', gap: 3,
             }}>
               <Trash2 size={10} /> Clear
@@ -633,14 +633,14 @@ export function PipelinePanel() {
           maxHeight: 280, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
         }}>
           {logs.length === 0 ? (
-            <span style={{ color: '#334155' }}>
+            <span style={{ color: '#3f424d' }}>
               No logs yet — run the scout pipeline to see output here.
             </span>
           ) : logs.map((line, i) => {
             const isError = /error|fail/i.test(line)
             const isSuccess = /complete|done|success/i.test(line)
             const isSection = line.startsWith('===')
-            const color = isError ? '#ef4444' : isSuccess ? '#22c55e' : isSection ? '#a855f7' : '#64748b'
+            const color = isError ? '#d97b84' : isSuccess ? '#b5abfc' : isSection ? '#968ae0' : '#75798c'
             return (
               <span key={i} style={{ display: 'block', color }}>
                 {line}
@@ -663,25 +663,25 @@ export function PipelinePanel() {
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: '#0d1117', border: '1px solid #334155', borderRadius: 14,
+              background: '#161826', border: '1px solid #3f424d', borderRadius: 14,
               width: 'min(760px, 100%)', maxHeight: '85vh', display: 'flex',
               flexDirection: 'column', overflow: 'hidden',
             }}
           >
             <div style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '14px 20px', borderBottom: '1px solid #1e293b',
+              padding: '14px 20px', borderBottom: '1px solid #31333d',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FileText size={15} style={{ color: '#a855f7' }} />
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>
+                <FileText size={15} style={{ color: '#968ae0' }} />
+                <span style={{ fontSize: 14, fontWeight: 700, color: '#e9e9ed' }}>
                   {report.fullName}
                 </span>
               </div>
               <button
                 onClick={() => setReport(null)}
                 style={{
-                  background: 'transparent', border: '1px solid #334155', color: '#94a3b8',
+                  background: 'transparent', border: '1px solid #3f424d', color: '#9397ab',
                   borderRadius: 6, padding: '4px 8px', cursor: 'pointer',
                   display: 'flex', alignItems: 'center',
                 }}
@@ -690,15 +690,15 @@ export function PipelinePanel() {
               </button>
             </div>
             <div className="prose-mf" style={{
-              padding: '18px 24px', overflowY: 'auto', color: '#cbd5e1',
+              padding: '18px 24px', overflowY: 'auto', color: '#d6d7de',
               fontSize: 13, lineHeight: 1.7,
             }}>
               {reportLoading ? (
-                <span style={{ color: '#475569' }}>Loading report…</span>
+                <span style={{ color: '#75798c' }}>Loading report…</span>
               ) : report.markdown ? (
                 <ReactMarkdown>{report.markdown}</ReactMarkdown>
               ) : (
-                <span style={{ color: '#475569' }}>No report stored for this repo yet.</span>
+                <span style={{ color: '#75798c' }}>No report stored for this repo yet.</span>
               )}
             </div>
           </div>
@@ -723,8 +723,8 @@ interface FlowBoxProps {
 function FlowBox({ icon, title, subtitle, running, runColor, meta, schedule }: FlowBoxProps) {
   return (
     <div style={{
-      background: '#1e293b', borderRadius: 10,
-      border: `1px solid ${running ? runColor + '66' : '#334155'}`,
+      background: '#31333d', borderRadius: 10,
+      border: `1px solid ${running ? runColor + '66' : '#3f424d'}`,
       padding: '16px 20px', flex: '1 1 0', minWidth: 160,
       boxShadow: running ? `0 0 12px ${runColor}22` : 'none',
       transition: 'border-color .3s, box-shadow .3s',
@@ -732,13 +732,13 @@ function FlowBox({ icon, title, subtitle, running, runColor, meta, schedule }: F
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 20 }}>{icon}</span>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>{title}</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#e9e9ed' }}>{title}</div>
         </div>
         <RunningDot running={running} color={runColor} />
       </div>
-      <div style={{ fontSize: 11, color: '#475569', marginBottom: 8 }}>{subtitle}</div>
-      <div style={{ fontSize: 10, color: '#334155' }}>{meta}</div>
-      {schedule && <div style={{ fontSize: 10, color: '#475569', marginTop: 2 }}>{schedule}</div>}
+      <div style={{ fontSize: 11, color: '#75798c', marginBottom: 8 }}>{subtitle}</div>
+      <div style={{ fontSize: 10, color: '#3f424d' }}>{meta}</div>
+      {schedule && <div style={{ fontSize: 10, color: '#75798c', marginTop: 2 }}>{schedule}</div>}
     </div>
   )
 }
@@ -765,24 +765,24 @@ function RunControl({
   const busy = loading || running
   return (
     <div style={{
-      background: '#131720', border: '1px solid #1e293b', borderRadius: 12, padding: '20px',
+      background: '#161826', border: '1px solid #31333d', borderRadius: 12, padding: '20px',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <span style={{ fontSize: 18 }}>{icon}</span>
-        <span style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>{title}</span>
+        <span style={{ fontWeight: 700, fontSize: 14, color: '#e9e9ed' }}>{title}</span>
         <RunningDot running={running} color={btnColor} />
       </div>
-      <p style={{ color: '#475569', fontSize: 12, margin: '0 0 12px', lineHeight: 1.6 }}>
+      <p style={{ color: '#75798c', fontSize: 12, margin: '0 0 12px', lineHeight: 1.6 }}>
         {description}
       </p>
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: '#64748b', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Model</div>
+        <div style={{ fontSize: 10, fontWeight: 600, color: '#75798c', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Model</div>
         <select
           value={model}
           onChange={(e) => onModelChange(e.target.value as AgentModel)}
           disabled={busy}
           style={{
-            background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155',
+            background: '#31333d', color: '#e9e9ed', border: '1px solid #3f424d',
             borderRadius: 8, padding: '6px 10px', fontSize: 12, width: '100%',
             cursor: busy ? 'not-allowed' : 'pointer', outline: 'none',
           }}
@@ -796,9 +796,9 @@ function RunControl({
         onClick={onRun}
         disabled={busy}
         style={{
-          background: busy ? '#1e293b' : btnColor,
-          color: busy ? '#64748b' : btnTextColor,
-          border: busy ? '1px solid #334155' : 'none',
+          background: busy ? '#31333d' : btnColor,
+          color: busy ? '#75798c' : btnTextColor,
+          border: busy ? '1px solid #3f424d' : 'none',
           borderRadius: 8, padding: '8px 16px',
           fontSize: 13, fontWeight: 600, cursor: busy ? 'not-allowed' : 'pointer',
           display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -808,9 +808,9 @@ function RunControl({
         <Play size={13} />
         {running ? 'Running…' : loading ? 'Starting…' : `Run ${title} Now`}
       </button>
-      <div style={{ marginTop: 10, color: '#475569', fontSize: 11 }}>
+      <div style={{ marginTop: 10, color: '#75798c', fontSize: 11 }}>
         Last run: {timeAgo(lastRun)}
-        {extra && <span style={{ marginLeft: 8, color: '#334155' }}>· {extra}</span>}
+        {extra && <span style={{ marginLeft: 8, color: '#3f424d' }}>· {extra}</span>}
       </div>
     </div>
   )
@@ -822,7 +822,7 @@ function Arrow() {
       <svg width="28" height="14" viewBox="0 0 28 14" fill="none">
         <path
           d="M1 7 H22 M17 2 L26 7 L17 12"
-          stroke="#334155"
+          stroke="#3f424d"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -832,13 +832,13 @@ function Arrow() {
   )
 }
 
-function RunningDot({ running, color = '#22c55e' }: { running: boolean; color?: string }) {
+function RunningDot({ running, color = '#b5abfc' }: { running: boolean; color?: string }) {
   return (
     <span
       title={running ? 'Running' : 'Idle'}
       style={{
         display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
-        background: running ? color : '#334155', flexShrink: 0,
+        background: running ? color : '#3f424d', flexShrink: 0,
         animation: running ? 'pulse 1.5s ease-in-out infinite' : 'none',
       }}
     />

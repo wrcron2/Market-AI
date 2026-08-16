@@ -102,7 +102,7 @@ export function StatusReportsTable() {
 
   return (
     <div>
-      <h3 className="flex items-center gap-2.5 text-base font-semibold">
+      <h3 className="flex items-center gap-2.5 text-[16px] font-semibold">
         <FileText size={16} />
         Chief PM Status Reports
       </h3>
@@ -247,13 +247,13 @@ function ReportDrilldown({ allReports, report, onDownload }: {
             <ResponsiveContainer width="100%" height={160}>
               <LineChart data={equitySeries} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} width={44} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9397ab' }} />
+                <YAxis tick={{ fontSize: 10, fill: '#9397ab' }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} width={44} />
                 <Tooltip
-                  contentStyle={{ background: '#161e2e', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                  formatter={(v: any) => [`$${fmtUSD(Number(v))}`, 'Equity']}
+                  contentStyle={{ background: '#1d1f2c', border: '1px solid #3f424d', borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: unknown) => [`$${fmtUSD(Number(v))}`, 'Equity']}
                 />
-                <Line type="monotone" dataKey="equity" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4, fill: '#3b82f6' }} />
+                <Line type="monotone" dataKey="equity" stroke="#968ae0" strokeWidth={2} dot={{ r: 4, fill: '#968ae0' }} />
               </LineChart>
             </ResponsiveContainer>
           </MiniChartCard>
@@ -262,13 +262,13 @@ function ReportDrilldown({ allReports, report, onDownload }: {
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={backlogSeries} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} width={36} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9397ab' }} />
+                <YAxis tick={{ fontSize: 10, fill: '#9397ab' }} width={36} />
                 <Tooltip
-                  contentStyle={{ background: '#161e2e', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                  formatter={(v: any) => [v, 'Pending signals']}
+                  contentStyle={{ background: '#1d1f2c', border: '1px solid #3f424d', borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: unknown) => [String(v), 'Pending signals']}
                 />
-                <Bar dataKey="pending" fill="#f97316" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="pending" fill="#d9a05b" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </MiniChartCard>
@@ -277,13 +277,13 @@ function ReportDrilldown({ allReports, report, onDownload }: {
             <ResponsiveContainer width="100%" height={160}>
               <LineChart data={concentrationSeries} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={v => `${v}%`} width={36} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9397ab' }} />
+                <YAxis tick={{ fontSize: 10, fill: '#9397ab' }} tickFormatter={v => `${v}%`} width={36} />
                 <Tooltip
-                  contentStyle={{ background: '#161e2e', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                  formatter={(v: any, _n: any, p: any) => [`${Number(v).toFixed(1)}% (${p.payload.symbol})`, 'Largest position']}
+                  contentStyle={{ background: '#1d1f2c', border: '1px solid #3f424d', borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: unknown, _n: unknown, p: { payload?: { symbol?: string } }) => [`${Number(v).toFixed(1)}% (${p.payload?.symbol ?? ''})`, 'Largest position']}
                 />
-                <Line type="monotone" dataKey="pct" stroke="#7c3aed" strokeWidth={2} dot={{ r: 4, fill: '#7c3aed' }} />
+                <Line type="monotone" dataKey="pct" stroke="#968ae0" strokeWidth={2} dot={{ r: 4, fill: '#968ae0' }} />
               </LineChart>
             </ResponsiveContainer>
           </MiniChartCard>
@@ -292,13 +292,13 @@ function ReportDrilldown({ allReports, report, onDownload }: {
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={findingsSeries} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} width={28} allowDecimals={false} />
-                <Tooltip contentStyle={{ background: '#161e2e', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9397ab' }} />
+                <YAxis tick={{ fontSize: 10, fill: '#9397ab' }} width={28} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: '#1d1f2c', border: '1px solid #3f424d', borderRadius: 8, fontSize: 12 }} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="Red" stackId="f" fill="#ef4444" />
-                <Bar dataKey="Yellow" stackId="f" fill="#eab308" />
-                <Bar dataKey="Green" stackId="f" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Red" stackId="f" fill="#d97b84" />
+                <Bar dataKey="Yellow" stackId="f" fill="#d9a05b" />
+                <Bar dataKey="Green" stackId="f" fill="#b5abfc" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </MiniChartCard>
@@ -308,14 +308,14 @@ function ReportDrilldown({ allReports, report, onDownload }: {
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={resolutionSeries} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                  <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} tickFormatter={v => `${v}%`} width={36} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#9397ab' }} />
+                  <YAxis tick={{ fontSize: 10, fill: '#9397ab' }} tickFormatter={v => `${v}%`} width={36} />
                   <Tooltip
-                    contentStyle={{ background: '#161e2e', border: '1px solid #334155', borderRadius: 8, fontSize: 12 }}
-                    formatter={(v: any) => [`${Number(v).toFixed(0)}%`, 'Resolved']}
+                    contentStyle={{ background: '#1d1f2c', border: '1px solid #3f424d', borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: unknown) => [`${Number(v).toFixed(0)}%`, 'Resolved']}
                   />
                   <Bar dataKey="pct" radius={[4, 4, 0, 0]}>
-                    {resolutionSeries.map((d, i) => <Cell key={i} fill={d.pct >= 50 ? '#22c55e' : d.pct >= 20 ? '#eab308' : '#ef4444'} />)}
+                    {resolutionSeries.map((d, i) => <Cell key={i} fill={d.pct >= 50 ? '#b5abfc' : d.pct >= 20 ? '#d9a05b' : '#d97b84'} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>

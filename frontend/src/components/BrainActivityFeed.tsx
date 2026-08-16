@@ -10,19 +10,19 @@ export interface BrainEvent {
 }
 
 const STEP_META: Record<string, { label: string; color: string }> = {
-  scan:    { label: 'SCAN',    color: '#60a5fa' },
-  signal:  { label: 'SIGNAL',  color: '#a855f7' },
-  debate:  { label: 'DEBATE',  color: '#f59e0b' },
-  risk:    { label: 'RISK',    color: '#f97316' },
-  stage:   { label: 'STAGE',   color: '#3b82f6' },
-  execute: { label: 'EXECUTE', color: '#22c55e' },
+  scan:    { label: 'SCAN',    color: '#a89cee' },
+  signal:  { label: 'SIGNAL',  color: '#968ae0' },
+  debate:  { label: 'DEBATE',  color: '#d9a05b' },
+  risk:    { label: 'RISK',    color: '#d9a05b' },
+  stage:   { label: 'STAGE',   color: '#968ae0' },
+  execute: { label: 'EXECUTE', color: '#b5abfc' },
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  ok:      '#22c55e',
-  skip:    '#94a3b8',
-  blocked: '#f59e0b',
-  error:   '#ef4444',
+  ok:      '#b5abfc',
+  skip:    '#9397ab',
+  blocked: '#d9a05b',
+  error:   '#d97b84',
 }
 
 function timeAgo(ms: number): string {
@@ -70,26 +70,26 @@ export function BrainActivityFeed({ liveEvents }: Props) {
   const latest = events[0]
 
   return (
-    <div style={{ background: '#0d1117', border: '1px solid #1e293b', borderRadius: 14, overflow: 'hidden' }}>
+    <div style={{ background: '#161826', border: '1px solid #31333d', borderRadius: 14, overflow: 'hidden' }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '12px 18px', borderBottom: '1px solid #1e293b',
+        padding: '12px 18px', borderBottom: '1px solid #31333d',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Activity size={15} style={{ color: '#a855f7' }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>Brain Activity — Live</span>
-          <span style={{ fontSize: 11, color: '#475569' }}>
+          <Activity size={15} style={{ color: '#968ae0' }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#e9e9ed' }}>Brain Activity — Live</span>
+          <span style={{ fontSize: 11, color: '#75798c' }}>
             scan → signal → debate → risk → stage → execute
           </span>
         </div>
-        <span style={{ fontSize: 11, color: '#475569' }}>
+        <span style={{ fontSize: 11, color: '#75798c' }}>
           {latest ? `last step ${timeAgo(latest.timestamp)}` : 'no activity yet'}
         </span>
       </div>
 
       <div style={{ maxHeight: 340, overflowY: 'auto', padding: '8px 0' }}>
         {events.length === 0 && (
-          <p style={{ color: '#475569', fontSize: 13, padding: '18px', margin: 0 }}>
+          <p style={{ color: '#75798c', fontSize: 13, padding: '18px', margin: 0 }}>
             No brain activity received yet. During market hours the brain posts a scan summary
             every bar (~5 min) plus a row for every symbol it skips, blocks, or trades — with the
             reason. If this stays empty while the market is open, the brain container may be down,
@@ -98,18 +98,18 @@ export function BrainActivityFeed({ liveEvents }: Props) {
           </p>
         )}
         {events.map((e, i) => {
-          const step = STEP_META[e.step] ?? { label: e.step.toUpperCase(), color: '#64748b' }
-          const statusColor = STATUS_COLORS[e.status] ?? '#64748b'
+          const step = STEP_META[e.step] ?? { label: e.step.toUpperCase(), color: '#75798c' }
+          const statusColor = STATUS_COLORS[e.status] ?? '#75798c'
           return (
             <div key={i} style={{
               display: 'flex', alignItems: 'baseline', gap: 10,
               padding: '5px 18px', fontSize: 12,
-              borderBottom: '1px solid #0f172a',
+              borderBottom: '1px solid #262833',
             }}>
-              <span style={{ color: '#475569', whiteSpace: 'nowrap', fontSize: 11, minWidth: 62 }}>
+              <span style={{ color: '#75798c', whiteSpace: 'nowrap', fontSize: 11, minWidth: 62 }}>
                 {new Date(e.timestamp).toLocaleTimeString()}
               </span>
-              <span style={{ fontWeight: 700, color: '#93c5fd', minWidth: 46 }}>{e.symbol}</span>
+              <span style={{ fontWeight: 700, color: '#c8bef6', minWidth: 46 }}>{e.symbol}</span>
               <span style={{
                 background: step.color + '18', color: step.color,
                 border: `1px solid ${step.color}30`, borderRadius: 4,
@@ -120,7 +120,7 @@ export function BrainActivityFeed({ liveEvents }: Props) {
               <span style={{ color: statusColor, fontWeight: 700, fontSize: 10, textTransform: 'uppercase', minWidth: 48 }}>
                 {e.status}
               </span>
-              <span style={{ color: '#94a3b8', flex: 1 }}>{e.detail}</span>
+              <span style={{ color: '#9397ab', flex: 1 }}>{e.detail}</span>
             </div>
           )
         })}

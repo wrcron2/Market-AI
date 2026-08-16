@@ -28,7 +28,7 @@ export function PerformanceHistory() {
 
   return (
     <div>
-      <h3 className="mb-3 flex items-center gap-2.5 text-base font-semibold">Portfolio Performance</h3>
+      <h3 className="mb-3 flex items-center gap-2.5 text-[16px] font-semibold">Portfolio Performance</h3>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {periods.map((p) => {
           const positive = p.pnl >= 0
@@ -38,16 +38,16 @@ export function PerformanceHistory() {
               key={p.period}
               className={`rounded-xl border p-4 ${
                 positive
-                  ? 'border-emerald-500/20 bg-emerald-500/5'
-                  : 'border-red-500/20 bg-red-500/5'
+                  ? 'border-signal-green/20 bg-signal-green/5'
+                  : 'border-signal-red/20 bg-signal-red/5'
               }`}
             >
               <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{p.label}</div>
-              <div className={`mt-1.5 flex items-center gap-1.5 font-mono text-[17px] font-bold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
+              <div className={`mt-1.5 flex items-center gap-1.5 font-mono text-[17px] font-bold ${positive ? 'text-signal-green' : 'text-signal-red'}`}>
                 <Icon size={14} />
                 {positive ? '+' : ''}${fmt$(p.pnl)}
               </div>
-              <div className={`mt-0.5 font-mono text-[13px] font-semibold ${positive ? 'text-emerald-400' : 'text-red-400'}`}>
+              <div className={`mt-0.5 font-mono text-[13px] font-semibold ${positive ? 'text-signal-green' : 'text-signal-red'}`}>
                 {positive ? '+' : ''}{p.pnl_pct.toFixed(2)}%
               </div>
               <div className="mt-1.5 text-[11px] text-ink-faint">

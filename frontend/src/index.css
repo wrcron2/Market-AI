@@ -1,5 +1,5 @@
 /* MarketFlow AI — the single global stylesheet. Imported once in main.tsx. */
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -23,13 +23,82 @@
     opacity: 1;
   }
   50% {
-    opacity: 0.4;
+    opacity: 0.35;
   }
 }
 
 @layer components {
+  /* Nocturne card: ring shadow instead of a border. */
   .mf-card {
-    @apply rounded-xl border border-line bg-surface;
+    @apply rounded-lg bg-surface;
+    box-shadow: 0 0 0 1px #3f424d;
+  }
+  /* Highlighted card: accent ring + tinted fill. */
+  .mf-card-accent {
+    @apply rounded-lg;
+    box-shadow: 0 0 0 1px #423a6a;
+    background: rgba(145, 132, 217, 0.07);
+  }
+  /* 10px uppercase letter-spaced purple eyebrow label. */
+  .mf-eyebrow {
+    @apply text-[10px] font-medium uppercase text-accent;
+    letter-spacing: 0.12em;
+  }
+  /* Horizontal hairline divider with faded ends. */
+  .mf-hairline {
+    height: 1px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      rgba(233, 233, 237, 0.16) 24px,
+      rgba(233, 233, 237, 0.16) calc(100% - 24px),
+      transparent
+    );
+  }
+  /* Small tag chips (neutral / accent / outline). */
+  .mf-tag {
+    @apply inline-flex items-center gap-1 whitespace-nowrap rounded px-[7px] py-[3px] text-[10px] font-medium;
+  }
+  .mf-tag-neutral {
+    @apply mf-tag bg-surface-sunken text-ink-muted;
+    box-shadow: 0 0 0 1px #31333d;
+  }
+  .mf-tag-accent {
+    @apply mf-tag text-[#e7e5fe];
+    background: #423a6a;
+  }
+  .mf-tag-outline {
+    @apply mf-tag text-ink-muted;
+    box-shadow: 0 0 0 1px #3f424d;
+  }
+  /* Buttons. */
+  .mf-btn {
+    @apply inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-4 py-2 text-[12.5px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .mf-btn-primary {
+    @apply mf-btn text-[#161826];
+    background: #968ae0;
+  }
+  .mf-btn-primary:hover:not(:disabled) {
+    background: #b5abfc;
+  }
+  .mf-btn-secondary {
+    @apply mf-btn text-ink;
+    box-shadow: 0 0 0 1px #3f424d;
+  }
+  .mf-btn-secondary:hover:not(:disabled) {
+    background: rgba(233, 233, 237, 0.06);
+  }
+  .mf-btn-ghost {
+    @apply mf-btn text-ink-muted hover:text-ink;
+  }
+  .mf-btn-danger {
+    @apply mf-btn uppercase tracking-[0.06em] text-signal-red;
+    box-shadow: 0 0 0 1px #d97b84;
+    font-size: 12px;
+  }
+  .mf-btn-danger:hover:not(:disabled) {
+    background: rgba(217, 123, 132, 0.12);
   }
   .mf-pill {
     @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs;
@@ -46,11 +115,11 @@
   }
   .mf-scroll::-webkit-scrollbar-thumb {
     @apply rounded-md;
-    background: #334155;
-    border: 2px solid #0f1117;
+    background: #3f424d;
+    border: 2px solid #161826;
   }
   .mf-scroll::-webkit-scrollbar-thumb:hover {
-    background: #475569;
+    background: #4b4e59;
   }
 }
 

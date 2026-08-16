@@ -14,7 +14,7 @@ function fmtUSD(n: number) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-const pnlCls = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-red-400')
+const pnlCls = (v: number) => (v >= 0 ? 'text-signal-green' : 'text-signal-red')
 
 export function TodaysTrades({ positions, alpacaPositions }: Props) {
   const todayStart = new Date()
@@ -37,7 +37,7 @@ export function TodaysTrades({ positions, alpacaPositions }: Props) {
   return (
     <div>
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="flex items-center gap-2.5 text-base font-semibold">
+        <h3 className="flex items-center gap-2.5 text-[16px] font-semibold">
           <Activity size={14} />
           Today's Trades
           <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-semibold text-ink-muted">{todayTrades.length}</span>
@@ -77,15 +77,15 @@ export function TodaysTrades({ positions, alpacaPositions }: Props) {
               {/* Left: symbol + badges */}
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <Icon size={14} className={isLong ? 'text-emerald-400' : 'text-red-400'} />
+                  <Icon size={14} className={isLong ? 'text-signal-green' : 'text-signal-red'} />
                   <span className="font-mono text-sm font-bold">{p.symbol}</span>
                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                    isLong ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'
+                    isLong ? 'bg-signal-green/15 text-signal-green' : 'bg-signal-red/15 text-signal-red'
                   }`}>
                     {isLong ? 'LONG' : 'SHORT'}
                   </span>
                   <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                    isClosed ? 'bg-surface-sunken text-ink-faint' : 'bg-blue-500/15 text-blue-400'
+                    isClosed ? 'bg-surface-sunken text-ink-faint' : 'bg-signal-blue/15 text-signal-blue'
                   }`}>
                     {isClosed ? 'closed' : 'open'}
                   </span>

@@ -20,12 +20,3 @@ export function LLMProviderToggle() {
     </div>
   )
 }
-
-// Stub hook — provider is permanently local, no network call needed.
-export function useLLMProvider() {
-  return {
-    provider: 'local' as const,
-    changeProvider: (_: 'aws' | 'local') => {},
-    loading: false,
-  }
-}

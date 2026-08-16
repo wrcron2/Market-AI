@@ -67,7 +67,7 @@ function FeedItem({ event }: { event: FeedEvent }) {
               <TrendingDown size={12} className="text-signal-red" />
             ))}
           {order.direction && (
-            <span className={`mf-chip ${isBuy ? 'bg-signal-green/15 text-emerald-400' : 'bg-signal-red/15 text-red-400'}`}>
+            <span className={`mf-chip ${isBuy ? 'bg-signal-green/15 text-signal-green' : 'bg-signal-red/15 text-signal-red'}`}>
               {order.direction}
             </span>
           )}
@@ -76,7 +76,7 @@ function FeedItem({ event }: { event: FeedEvent }) {
           )}
         </>
       )}
-      {event.autoExecuted && <span className="mf-chip bg-signal-purple/15 text-violet-300">⚡ AUTO</span>}
+      {event.autoExecuted && <span className="mf-chip bg-signal-purple/15 text-signal-purple">⚡ AUTO</span>}
       {event.message && <span className="truncate text-[12px] text-ink-faint">{event.message}</span>}
     </div>
   )

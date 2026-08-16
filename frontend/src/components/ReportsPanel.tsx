@@ -82,7 +82,7 @@ function fmtDate(ms: number): string {
   return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-const pnlColor = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-red-400')
+const pnlColor = (v: number) => (v >= 0 ? 'text-signal-green' : 'text-signal-red')
 const pnlSign = (v: number) => (v >= 0 ? '+' : '')
 
 export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } = {}) {
@@ -184,13 +184,13 @@ export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } =
         <StatTile
           label="Win Rate"
           value={`${data.overall_win_rate.toFixed(1)}%`}
-          color={data.overall_win_rate >= 50 ? 'text-emerald-400' : 'text-red-400'}
+          color={data.overall_win_rate >= 50 ? 'text-signal-green' : 'text-signal-red'}
           icon={Target}
         />
         <StatTile
           label={winStreak > 0 ? 'Win Streak' : 'Loss Streak'}
           value={String(winStreak > 0 ? winStreak : lossStreak)}
-          color={winStreak > 0 ? 'text-emerald-400' : lossStreak > 0 ? 'text-red-400' : ''}
+          color={winStreak > 0 ? 'text-signal-green' : lossStreak > 0 ? 'text-signal-red' : ''}
           icon={Trophy}
         />
       </div>
@@ -201,9 +201,9 @@ export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } =
           <h3 className="mb-3 text-[13px] font-semibold text-ink-muted">Signal Pipeline</h3>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <MiniStat label="Generated" value={data.order_stats.totalSignals} />
-            <MiniStat label="Approved" value={data.order_stats.approved} color="text-emerald-400" />
-            <MiniStat label="Rejected" value={data.order_stats.rejected} color="text-red-400" />
-            <MiniStat label="Executed" value={data.order_stats.executed} color="text-blue-400" />
+            <MiniStat label="Approved" value={data.order_stats.approved} color="text-signal-green" />
+            <MiniStat label="Rejected" value={data.order_stats.rejected} color="text-signal-red" />
+            <MiniStat label="Executed" value={data.order_stats.executed} color="text-signal-blue" />
             <MiniStat label="Pending" value={pendingSignals} color={pendingSignals > 50 ? 'text-signal-yellow' : ''} />
           </div>
           {data.order_stats.avgConfidence > 0 && (
@@ -221,13 +221,13 @@ export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } =
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={weeklyData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={v => `$${v}`} width={60} />
+                <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#9397ab' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#9397ab' }} tickFormatter={v => `$${v}`} width={60} />
                 <Tooltip content={<PnlTooltip suffix="Weekly P&L" />} />
-                <ReferenceLine y={0} stroke="#475569" />
+                <ReferenceLine y={0} stroke="#75798c" />
                 <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
                   {weeklyData.map((entry, i) => (
-                    <Cell key={i} fill={entry.pnl >= 0 ? '#22c55e' : '#ef4444'} />
+                    <Cell key={i} fill={entry.pnl >= 0 ? '#b5abfc' : '#d97b84'} />
                   ))}
                 </Bar>
               </BarChart>
@@ -238,11 +238,11 @@ export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } =
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={weeklyData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={v => `$${v}`} width={60} />
+                <XAxis dataKey="week" tick={{ fontSize: 10, fill: '#9397ab' }} />
+                <YAxis tick={{ fontSize: 11, fill: '#9397ab' }} tickFormatter={v => `$${v}`} width={60} />
                 <Tooltip content={<PnlTooltip suffix="Cumulative" />} />
-                <ReferenceLine y={0} stroke="#475569" />
-                <Line type="monotone" dataKey="cum_pnl" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }} activeDot={{ r: 5 }} />
+                <ReferenceLine y={0} stroke="#75798c" />
+                <Line type="monotone" dataKey="cum_pnl" stroke="#968ae0" strokeWidth={2} dot={{ r: 3, fill: '#968ae0' }} activeDot={{ r: 5 }} />
               </LineChart>
             </ResponsiveContainer>
           </ChartCard>
@@ -252,7 +252,7 @@ export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } =
       {/* Strategy breakdown */}
       {(data.strategies ?? []).length > 0 && (
         <>
-          <h3 className="flex items-center gap-2.5 text-base font-semibold">
+          <h3 className="flex items-center gap-2.5 text-[16px] font-semibold">
             <Target size={16} />
             Strategy Breakdown
           </h3>
@@ -293,7 +293,7 @@ export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } =
       {/* Recent closed trades */}
       {recentTrades.length > 0 && (
         <>
-          <h3 className="flex items-center gap-2.5 text-base font-semibold">
+          <h3 className="flex items-center gap-2.5 text-[16px] font-semibold">
             <Clock size={16} />
             Recent Closed Trades
             <span className="rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-semibold text-ink-muted">
@@ -320,7 +320,7 @@ export function ReportsPanel({ eodRefreshToken }: { eodRefreshToken?: number } =
                         <td className="whitespace-nowrap px-4 py-3 font-mono text-[13px] font-bold">{t.symbol}</td>
                         <td className="whitespace-nowrap px-4 py-3 text-[13px]">
                           <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
-                            isLong ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'
+                            isLong ? 'bg-signal-green/15 text-signal-green' : 'bg-signal-red/15 text-signal-red'
                           }`}>
                             {t.direction}
                           </span>
@@ -413,13 +413,13 @@ function StrategyCard({ strategy: s }: { strategy: StrategyReport }) {
       <div className="mt-3">
         <div className="mb-1 flex justify-between text-[10px] text-ink-faint">
           <span>{s.winners}W / {s.losers}L ({s.total_trades} trades)</span>
-          <span className={s.win_rate >= 50 ? 'text-emerald-400' : 'text-red-400'}>
+          <span className={s.win_rate >= 50 ? 'text-signal-green' : 'text-signal-red'}>
             {s.win_rate.toFixed(1)}% win rate
           </span>
         </div>
-        <div className="flex h-2 overflow-hidden rounded-full bg-red-500/20">
+        <div className="flex h-2 overflow-hidden rounded-full bg-signal-red/20">
           <div
-            className="rounded-full bg-emerald-500 transition-all"
+            className="rounded-full bg-signal-green transition-all"
             style={{ width: `${barWidth}%` }}
           />
         </div>
@@ -431,11 +431,11 @@ function StrategyCard({ strategy: s }: { strategy: StrategyReport }) {
           <div className="text-ink-faint">Avg P&L</div>
         </div>
         <div>
-          <div className="font-mono font-semibold text-emerald-400">${fmtUSD(s.best_trade)}</div>
+          <div className="font-mono font-semibold text-signal-green">${fmtUSD(s.best_trade)}</div>
           <div className="text-ink-faint">Best</div>
         </div>
         <div>
-          <div className="font-mono font-semibold text-red-400">-${fmtUSD(Math.abs(s.worst_trade))}</div>
+          <div className="font-mono font-semibold text-signal-red">-${fmtUSD(Math.abs(s.worst_trade))}</div>
           <div className="text-ink-faint">Worst</div>
         </div>
       </div>
@@ -452,14 +452,14 @@ function AccuracyBlock({ label, total, hits, accuracy, avgReturn }: {
     <div>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">{label}</div>
       <div className="mt-2 flex items-end gap-2">
-        <span className={`font-mono text-[22px] font-bold ${accuracy >= 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+        <span className={`font-mono text-[22px] font-bold ${accuracy >= 50 ? 'text-signal-green' : 'text-signal-red'}`}>
           {accuracy.toFixed(1)}%
         </span>
         <span className="pb-1 text-[11px] text-ink-faint">({hits}/{total} correct)</span>
       </div>
       <div className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-surface-sunken">
         <div
-          className={`rounded-full transition-all ${accuracy >= 50 ? 'bg-emerald-500' : 'bg-red-500'}`}
+          className={`rounded-full transition-all ${accuracy >= 50 ? 'bg-signal-green' : 'bg-signal-red'}`}
           style={{ width: `${barWidth}%` }}
         />
       </div>
@@ -470,10 +470,10 @@ function AccuracyBlock({ label, total, hits, accuracy, avgReturn }: {
   )
 }
 
-function PnlTooltip({ active, payload, label, suffix }: any) {
+function PnlTooltip({ active, payload, label, suffix }: { active?: boolean; payload?: { value?: number }[]; label?: string; suffix: string }) {
   if (!active || !payload?.length) return null
   const val = payload[0]?.value as number
-  const color = val >= 0 ? '#22c55e' : '#ef4444'
+  const color = val >= 0 ? '#b5abfc' : '#d97b84'
   return (
     <div className="rounded-lg bg-surface-raised px-3 py-2" style={{ border: `1px solid ${color}` }}>
       <div className="text-[11px] text-ink-muted">{label}</div>

@@ -1,138 +1,138 @@
-import { Menu, Octagon, Bell, Settings, PanelRightClose, Zap, Pause, AlertTriangle } from 'lucide-react'
-import { Pill, StatusDot } from '../ui/primitives'
-import { fmtUSD } from '../../lib/format'
+import { useEffect, useState } from 'react'
+import { Bell, PanelRightClose, Zap, Pause, AlertTriangle } from 'lucide-react'
+import { StatusDot } from '../ui/primitives'
+import { fmtUSD, fmtSignedUSD, C } from '../../lib/format'
 import type { TradingMode } from '../TradingModeToggle'
 
 interface Props {
-  breadcrumb: string
   wsConnected: boolean
   autoExec: boolean
   mode: TradingMode
   portfolioValue: number | null
+  dayPnl: number | null
   marketOpen: boolean
   marketMinutes: number | null
   alertCount?: number
   llmDegraded?: boolean
-  onToggleNav: () => void
   onToggleAsk: () => void
-  onHalt: () => void
-  onAutoClick: () => void
   onBell: () => void
-  onSettings: () => void
+  onKill: () => void
 }
 
+const fmtTz = (d: Date, tz: string) =>
+  d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: tz })
+
 export function TopBar({
-  breadcrumb,
   wsConnected,
   autoExec,
   mode,
   portfolioValue,
+  dayPnl,
   marketOpen,
   marketMinutes,
   alertCount = 0,
   llmDegraded = false,
-  onToggleNav,
   onToggleAsk,
-  onHalt,
-  onAutoClick,
   onBell,
-  onSettings,
+  onKill,
 }: Props) {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1_000)
+    return () => clearInterval(id)
+  }, [])
+
+  const isSim = mode === 'yahoo'
+  const modeLabel = isSim ? 'Sim · Yahoo' : 'Paper · Alpaca'
+  const modeColor = isSim ? C.warn : C.bright
+
   return (
-    <header className="z-30 flex h-[60px] shrink-0 items-center gap-3.5 border-b border-line-faint bg-base px-4">
-      {/* Left */}
-      <button
-        onClick={onToggleNav}
-        title="Toggle navigation"
-        className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-lg border border-line bg-surface-hover text-ink-muted hover:bg-[#222d42] hover:text-ink"
-      >
-        <Menu size={17} />
-      </button>
-      <div className="flex shrink-0 items-center gap-1.5 text-[13px]">
-        <span className="hidden text-ink-faint sm:inline">MarketFlow</span>
-        <span className="hidden text-line sm:inline">/</span>
-        <span className="font-semibold text-ink">{breadcrumb}</span>
-      </div>
-
-      {/* Center status pills */}
-      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1.5">
-        {llmDegraded && (
-          <Pill tone="red" className="animate-pulse">
-            <AlertTriangle size={13} />
-            DEGRADED — Ollama Fallback
-          </Pill>
-        )}
-        <Pill tone={marketOpen ? 'green' : 'neutral'} className="hidden md:inline-flex">
-          <StatusDot color={marketOpen ? '#22c55e' : '#6b7280'} />
-          {marketOpen ? 'Market Open' : 'Market Closed'}
-          {marketOpen && marketMinutes != null && (
-            <span className="hidden font-mono text-[11px] text-ink-faint lg:inline">
-              · closes {marketMinutes}m
-            </span>
-          )}
-        </Pill>
-
-        <Pill tone={wsConnected ? 'green' : 'orange'} className="hidden md:inline-flex">
-          <StatusDot color={wsConnected ? '#22c55e' : '#f97316'} pulse={!wsConnected} />
-          {wsConnected ? 'Connected' : 'Reconnecting…'}
-        </Pill>
-
-        <Pill
-          tone={autoExec ? 'yellow' : 'neutral'}
-          onClick={onAutoClick}
-          title="Read-only · click to open Configuration"
-          className="hidden md:inline-flex"
+    <header className="sticky top-0 z-30 flex shrink-0 items-center gap-[22px] border-b border-ink/10 bg-base px-7 py-3.5">
+      {/* Mode */}
+      <div className="flex items-center gap-2">
+        <span
+          className="h-[7px] w-[7px] animate-pulse-dot rounded-full"
+          style={{ background: modeColor }}
+        />
+        <span
+          className="whitespace-nowrap text-[12px] font-medium uppercase"
+          style={{ letterSpacing: '.06em', color: modeColor }}
         >
-          {autoExec ? <Zap size={13} /> : <Pause size={13} />}
-          {autoExec ? 'AUTO ON' : 'AUTO OFF'}
-        </Pill>
-
-        <Pill tone={mode === 'ibkr' ? 'red' : 'blue'} className="hidden lg:inline-flex">
-          {mode === 'ibkr' ? 'IBKR LIVE' : 'YAHOO SIM'}
-        </Pill>
-
-        {portfolioValue != null && (
-          <Pill className="hidden xl:inline-flex">
-            <span className="text-[11px] text-ink-faint">Portfolio</span>
-            <span className="font-mono text-[12px] font-semibold tabular text-ink">{fmtUSD(portfolioValue)}</span>
-          </Pill>
-        )}
+          {modeLabel}
+        </span>
       </div>
+
+      {/* Dual clock */}
+      <div className="hidden whitespace-nowrap font-mono text-[12px] text-ink-muted md:block">
+        {fmtTz(now, 'Asia/Jerusalem')} IL · {fmtTz(now, 'America/New_York')} ET
+        {' · '}
+        {marketOpen
+          ? `market open${marketMinutes != null ? `, ${marketMinutes} min to close` : ''}`
+          : 'market closed'}
+      </div>
+
+      {!wsConnected && (
+        <span className="hidden items-center gap-1.5 font-mono text-[11px] text-signal-orange lg:flex">
+          <StatusDot color={C.warn} pulse size={7} /> reconnecting…
+        </span>
+      )}
+      {llmDegraded && (
+        <span className="hidden items-center gap-1.5 font-mono text-[11px] text-signal-orange lg:flex">
+          <AlertTriangle size={12} /> llm degraded — ollama fallback
+        </span>
+      )}
+      <span
+        className="hidden items-center gap-1.5 font-mono text-[11px] text-ink-faint xl:flex"
+        title="Auto-execute state (change on the Ops page)"
+      >
+        {autoExec ? <Zap size={12} className="text-signal-yellow" /> : <Pause size={12} />}
+        {autoExec ? 'auto on' : 'auto off'}
+      </span>
 
       {/* Right */}
-      <div className="flex shrink-0 items-center gap-2">
-        <button
-          onClick={onHalt}
-          title="Emergency kill switch — disables AUTO & cancels orders (Cmd+Shift+H)"
-          className="flex items-center gap-1.5 rounded-lg border border-signal-red bg-signal-red px-3.5 py-2 text-[12.5px] font-bold tracking-wide text-white hover:animate-glow"
-        >
-          <Octagon size={15} /> HALT ALL
+      <div className="ml-auto flex items-center gap-[22px]">
+        {portfolioValue != null && (
+          <div className="hidden flex-col items-end gap-[3px] sm:flex">
+            <span className="text-[10px] uppercase text-ink-faint" style={{ letterSpacing: '.1em' }}>
+              Net liq
+            </span>
+            <span className="tabular text-[15px] font-medium leading-none">{fmtUSD(portfolioValue)}</span>
+          </div>
+        )}
+        {dayPnl != null && (
+          <div className="hidden flex-col items-end gap-[3px] sm:flex">
+            <span className="text-[10px] uppercase text-ink-faint" style={{ letterSpacing: '.1em' }}>
+              Day
+            </span>
+            <span
+              className="tabular text-[15px] font-medium leading-none"
+              style={{ color: dayPnl >= 0 ? C.bright : C.danger }}
+            >
+              {fmtSignedUSD(dayPnl)}
+            </span>
+          </div>
+        )}
+        <button onClick={onKill} className="mf-btn-danger" title="Emergency kill switch (Cmd+Shift+H)">
+          Kill switch
         </button>
         <button
           onClick={onBell}
           title="Alerts"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface-hover text-ink-muted hover:bg-[#222d42] hover:text-ink"
+          className="relative flex h-8 w-8 items-center justify-center rounded-lg text-ink-muted hover:bg-ink/[.06] hover:text-ink"
         >
-          <Bell size={17} />
+          <Bell size={16} />
           {alertCount > 0 && (
-            <span className="absolute -right-1.5 -top-1.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full border-2 border-base bg-signal-red px-1 text-[10px] font-bold text-white">
+            <span className="absolute -right-1 -top-1 flex h-[16px] min-w-[16px] items-center justify-center rounded-full border-2 border-base bg-signal-red px-1 text-[10px] font-bold text-white">
               {alertCount}
             </span>
           )}
         </button>
         <button
-          onClick={onSettings}
-          title="Configuration"
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface-hover text-ink-muted hover:bg-[#222d42] hover:text-ink"
-        >
-          <Settings size={17} />
-        </button>
-        <button
           onClick={onToggleAsk}
           title="Toggle Ask AI panel"
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-surface-hover text-ink-muted hover:bg-[#222d42] hover:text-ink"
+          className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-muted hover:bg-ink/[.06] hover:text-ink"
         >
-          <PanelRightClose size={17} />
+          <PanelRightClose size={16} />
         </button>
       </div>
     </header>

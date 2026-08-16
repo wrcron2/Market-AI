@@ -1,12 +1,13 @@
-import { useState, useMemo, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import {
-  CheckCircle, XCircle, TrendingUp, TrendingDown, Brain, AlertTriangle,
-  Search, Filter, ChevronLeft, ChevronRight, Calendar,
-  Target, Shield, Scale,
+  Brain, ChevronRight,
+  Target, Shield, Scale, TrendingUp, TrendingDown,
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import type { StagedOrder, Direction } from '../types'
-import { Card, ConfidenceBar } from './ui/primitives'
+import type { StagedOrder } from '../types'
+import type { BrainEvent } from './BrainActivityFeed'
+import { PageHead } from './ui/primitives'
+import { fmtUSD, relTime, confidenceColor, C } from '../lib/format'
 
 interface Props {
   orders: StagedOrder[]
@@ -14,18 +15,13 @@ interface Props {
   onReject: (signalId: string, comment: string) => Promise<void>
 }
 
-const PAGE_SIZE = 10
-
+/**
+ * Green Light — card-per-staged-order layout (Nocturne template).
+ * Approve/reject logic and trader comments are unchanged.
+ */
 export function GreenLightPanel({ orders, onApprove, onReject }: Props) {
   const [processing, setProcessing] = useState<string | null>(null)
   const [comments, setComments] = useState<Record<string, string>>({})
-
-  const [search, setSearch] = useState('')
-  const [direction, setDirection] = useState<Direction | 'ALL'>('ALL')
-  const [confidence, setConfidence] = useState<'ALL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'GTE_80'>('ALL')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [page, setPage] = useState(1)
 
   const handle = async (signalId: string, action: 'approve' | 'reject') => {
     setProcessing(signalId)
@@ -38,110 +34,32 @@ export function GreenLightPanel({ orders, onApprove, onReject }: Props) {
     }
   }
 
-  const filtered = useMemo(() => {
-    return orders.filter((o) => {
-      if (search && !o.symbol.toLowerCase().includes(search.toLowerCase())) return false
-      if (direction !== 'ALL' && o.direction !== direction) return false
-      if (confidence === 'HIGH' && o.confidence < 0.9) return false
-      if (confidence === 'MEDIUM' && (o.confidence < 0.75 || o.confidence >= 0.9)) return false
-      if (confidence === 'LOW' && o.confidence >= 0.75) return false
-      if (confidence === 'GTE_80' && o.confidence < 0.8) return false
-      if (dateFrom && o.created_at < new Date(dateFrom).getTime()) return false
-      if (dateTo && o.created_at > new Date(dateTo).getTime() + 86_400_000) return false
-      return true
-    })
-  }, [orders, search, direction, confidence, dateFrom, dateTo])
-
-  const gte80Count = useMemo(() => orders.filter((o) => o.confidence >= 0.8).length, [orders])
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const currentPage = Math.min(page, totalPages)
-  const paginated = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
-
-  const resetFilters = () => {
-    setSearch(''); setDirection('ALL'); setConfidence('ALL'); setDateFrom(''); setDateTo(''); setPage(1)
-  }
-  const hasFilters = search || direction !== 'ALL' || confidence !== 'ALL' || dateFrom || dateTo
-
-  const selectCls =
-    'rounded-lg border border-line-soft bg-base px-2.5 py-1.5 text-xs text-ink outline-none focus:border-signal-blue'
-
-  if (orders.length === 0) {
-    return (
-      <Card className="flex flex-col items-center justify-center gap-3 py-16 text-ink-faint">
-        <CheckCircle size={40} className="text-signal-green/60" />
-        <p className="text-sm">No signals awaiting approval</p>
-      </Card>
-    )
-  }
-
   return (
-    <Card className="overflow-hidden">
-      {/* Title */}
-      <div className="flex items-center gap-2.5 border-b border-line-soft px-4 py-3.5">
-        <AlertTriangle size={18} className="text-signal-yellow" />
-        <span className="text-sm font-semibold">Green Light Queue</span>
-        <span className="rounded-full bg-signal-yellow/16 px-2 py-0.5 text-[11px] font-semibold text-yellow-300">
-          {orders.length} pending
-        </span>
-        {filtered.length !== orders.length && (
-          <span className="text-[11px] text-ink-faint">{filtered.length} shown</span>
-        )}
-      </div>
+    <div className="flex flex-col gap-[22px]">
+      <PageHead
+        eyebrow="Green Light staging"
+        title={orders.length === 0 ? 'Nothing waiting' : `${orders.length} order${orders.length === 1 ? '' : 's'} waiting on a human`}
+        right={
+          <span className="text-right font-mono text-[12px] leading-[1.5] text-ink-faint">
+            auto-execute only inside the envelope
+            <br />
+            everything else waits here
+          </span>
+        }
+      />
 
-      {/* Filter toolbar */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-line-soft px-4 py-2.5">
-        <div className="flex items-center gap-1.5 rounded-lg border border-line-soft bg-base px-2.5 py-1.5">
-          <Search size={13} className="text-ink-faint" />
-          <input
-            placeholder="Search symbol…"
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-            className="w-24 bg-transparent text-xs text-ink outline-none placeholder:text-slate-600"
-          />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Filter size={12} className="text-ink-faint" />
-          <select value={direction} onChange={(e) => { setDirection(e.target.value as Direction | 'ALL'); setPage(1) }} className={selectCls}>
-            <option value="ALL">All directions</option>
-            <option value="BUY">BUY</option>
-            <option value="SELL">SELL</option>
-            <option value="SHORT">SHORT</option>
-            <option value="COVER">COVER</option>
-          </select>
-        </div>
-        <select value={confidence} onChange={(e) => { setConfidence(e.target.value as typeof confidence); setPage(1) }} className={selectCls}>
-          <option value="ALL">All confidence</option>
-          <option value="GTE_80">≥ 80% · {gte80Count}</option>
-          <option value="HIGH">High ≥ 90%</option>
-          <option value="MEDIUM">Medium 75–90%</option>
-          <option value="LOW">Low &lt; 75%</option>
-        </select>
-        <div className="flex items-center gap-1.5">
-          <Calendar size={12} className="text-ink-faint" />
-          <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} title="From date" className={selectCls} />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-ink-faint">→</span>
-          <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} title="To date" className={selectCls} />
-        </div>
-        {hasFilters && (
-          <button onClick={resetFilters} className="rounded-lg border border-line-soft px-2.5 py-1.5 text-xs text-ink-muted hover:text-ink">
-            Clear
-          </button>
-        )}
-      </div>
-
-      {/* List */}
-      {filtered.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 py-12 text-ink-faint">
-          <Search size={24} />
-          <p className="text-sm">No signals match your filters</p>
-          <button onClick={resetFilters} className="text-xs text-signal-blue">Clear filters</button>
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-col gap-3 p-4">
-            {paginated.map((order) => (
+      <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[1fr_400px]">
+        {/* Order queue */}
+        <div className="flex flex-col gap-3">
+          {orders.length === 0 ? (
+            <div className="mf-card flex flex-col items-center gap-2.5 p-14 text-center">
+              <span className="text-[24px] font-medium">Queue clear</span>
+              <span className="font-mono text-[13px] leading-[1.5] text-ink-faint">
+                Nothing outside the envelope. The deterministic layer has the wheel.
+              </span>
+            </div>
+          ) : (
+            orders.map((order) => (
               <OrderCard
                 key={order.id}
                 order={order}
@@ -151,57 +69,70 @@ export function GreenLightPanel({ orders, onApprove, onReject }: Props) {
                 onReject={() => handle(order.id, 'reject')}
                 isProcessing={processing === order.id}
               />
-            ))}
-          </div>
-
-          {totalPages > 1 && (
-            <div className="flex items-center gap-1.5 border-t border-line-soft px-4 py-2.5">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-line-soft text-ink-muted disabled:opacity-40"
-              >
-                <ChevronLeft size={14} />
-              </button>
-              {Array.from({ length: totalPages }, (_, i) => i + 1)
-                .filter((p) => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
-                .reduce<(number | '…')[]>((acc, p, i, arr) => {
-                  if (i > 0 && (p as number) - (arr[i - 1] as number) > 1) acc.push('…')
-                  acc.push(p)
-                  return acc
-                }, [])
-                .map((p, i) =>
-                  p === '…' ? (
-                    <span key={`e-${i}`} className="px-1 text-ink-faint">…</span>
-                  ) : (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p as number)}
-                      className={`flex h-7 min-w-7 items-center justify-center rounded-md border px-2 text-xs ${
-                        currentPage === p
-                          ? 'border-signal-blue bg-signal-blue/10 text-blue-200'
-                          : 'border-line-soft text-ink-muted'
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ),
-                )}
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-line-soft text-ink-muted disabled:opacity-40"
-              >
-                <ChevronRight size={14} />
-              </button>
-              <span className="ml-auto font-mono text-[11px] text-ink-faint">
-                {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, filtered.length)} of {filtered.length}
-              </span>
-            </div>
+            ))
           )}
-        </>
-      )}
-    </Card>
+        </div>
+
+        <AdvisoryPanel />
+      </div>
+    </div>
+  )
+}
+
+// ─── Advisory (read-only brain output) ────────────────────────────────────────
+
+function AdvisoryPanel() {
+  const [events, setEvents] = useState<BrainEvent[]>([])
+
+  useEffect(() => {
+    fetch('/api/brain/activity')
+      .then((r) => r.json())
+      .then((d) => setEvents(d.events ?? []))
+      .catch(() => {})
+  }, [])
+
+  const latest = events[0]
+
+  return (
+    <div className="mf-card flex flex-col gap-4 p-[22px]">
+      <div className="flex items-center gap-2">
+        <span className="mf-eyebrow">Brain activity · read-only</span>
+        <span className="mf-tag-outline ml-auto">advisory</span>
+      </div>
+      <span className="font-mono text-[12px] leading-[1.5] text-ink-faint">
+        advisory · read-only — no agent can place an order. Every order above was staged by the
+        pipeline and waits for a human.
+      </span>
+      <div
+        className="overflow-auto rounded-lg bg-base p-4"
+        style={{ boxShadow: `0 0 0 1px ${C.line}` }}
+      >
+        {latest ? (
+          <pre className="m-0 whitespace-pre-wrap font-mono text-[11.5px] leading-[1.7] text-[#cfd3e5]">
+{JSON.stringify(
+  {
+    at: new Date(latest.timestamp).toISOString(),
+    symbol: latest.symbol,
+    step: latest.step,
+    status: latest.status,
+    detail: latest.detail,
+  },
+  null,
+  2,
+)}
+          </pre>
+        ) : (
+          <span className="font-mono text-[11.5px] text-ink-faint">
+            no brain activity yet — the brain posts every bar (~5 min) during market hours
+          </span>
+        )}
+      </div>
+      <span className="font-mono text-[12px] leading-[1.4] text-ink-muted">
+        {events.length > 0
+          ? `${events.length} recent steps in the ring buffer · latest ${relTime(latest.timestamp)} ago`
+          : 'source · /api/brain/activity'}
+      </span>
+    </div>
   )
 }
 
@@ -216,102 +147,77 @@ interface CardProps {
   isProcessing: boolean
 }
 
-function formatDate(ms: number): string {
-  const d = new Date(ms)
-  return (
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
-    ' · ' +
-    d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-  )
-}
-
 function OrderCard({ order, comment, onCommentChange, onApprove, onReject, isProcessing }: CardProps) {
   const isBuy = order.direction === 'BUY' || order.direction === 'COVER'
+  const notional = order.limit_price > 0 ? order.quantity * order.limit_price : null
   const confidencePct = Math.round(order.confidence * 100)
-  const confidenceColor =
-    order.confidence >= 0.95 ? '#22c55e' : order.confidence >= 0.9 ? '#eab308' : '#ef4444'
 
   return (
-    <div className="rounded-xl border border-line-soft bg-surface-raised p-4">
+    <div className="mf-card flex flex-col gap-4 p-[22px]">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className={isBuy ? 'text-signal-green' : 'text-signal-red'}>
-            {isBuy ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-          </span>
-          <span className="font-mono text-[17px] font-bold">{order.symbol}</span>
-          <span className={`mf-chip ${isBuy ? 'bg-signal-green/15 text-emerald-400' : 'bg-signal-red/15 text-red-400'}`}>
-            {order.direction}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 font-mono text-[12px] text-ink-muted">
-          <span>{order.quantity.toLocaleString()} sh</span>
-          {order.limit_price > 0 && <span>@ ${order.limit_price.toFixed(2)}</span>}
-        </div>
-      </div>
-
-      {/* Date */}
-      <div className="mt-2 flex items-center gap-1.5 font-mono text-[11px] text-ink-faint">
-        <Calendar size={11} />
-        {formatDate(order.created_at)}
-      </div>
-
-      {/* Confidence */}
-      <div className="mt-3 flex items-center gap-2.5">
-        <span className="w-[70px] text-[11px] text-ink-faint">Confidence</span>
-        <ConfidenceBar value={order.confidence} className="flex-1" />
-        <span className="w-10 text-right font-mono text-[13px] font-semibold" style={{ color: confidenceColor }}>
-          {confidencePct}%
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-mono text-[24px] font-medium leading-none">{order.symbol}</span>
+        <span className="mf-tag-neutral">{order.strategy_name}</span>
+        <span className={`mf-chip ${isBuy ? 'bg-signal-green/15 text-signal-green' : 'bg-signal-red/15 text-signal-red'}`}>
+          {order.direction}
+        </span>
+        <span className="font-mono text-[12px] text-ink-faint">staged {relTime(order.created_at)} ago</span>
+        <span className="ml-auto font-mono text-[12px]" style={{ color: confidenceColor(order.confidence) }}>
+          confidence {confidencePct}%
         </span>
       </div>
 
-      {/* Strategy + model */}
-      <div className="mt-3 flex items-center gap-2 text-[11px] text-ink-muted">
-        <Brain size={12} className="text-ink-faint" />
-        <span className="font-mono">{order.strategy_name}</span>
-        <span className="rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px]">{order.model_used}</span>
+      {/* 4-column grid */}
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <Field label="side · shares" value={`${order.direction} ${order.quantity.toLocaleString()}`} />
+        <Field label="limit" value={order.limit_price > 0 ? fmtUSD(order.limit_price) : 'market'} />
+        <Field label="notional" value={notional != null ? fmtUSD(notional, 0) : '—'} />
+        <Field label="model" value={order.model_used || '—'} small />
       </div>
 
-      {/* AI Reasoning */}
-      <details className="group mt-3 border-t border-line-soft pt-3">
+      {/* Reasoning */}
+      <details className="group">
         <summary className="flex cursor-pointer list-none items-center gap-1.5 text-[12.5px] font-semibold text-ink-muted hover:text-ink">
           <Brain size={13} className="text-ink-faint" />
-          Agent Reasoning Chain
-          <span className="ml-auto text-[10px] font-normal text-ink-faint group-open:hidden">click to expand</span>
+          Agent reasoning chain
+          <ChevronRight size={12} className="text-ink-faint transition-transform group-open:rotate-90" />
         </summary>
         <div className="mt-3 flex flex-col gap-2">
           <ReasoningSection reasoning={order.reasoning} />
         </div>
       </details>
 
-      {/* Comment */}
+      {/* Comment + actions */}
       <input
-        placeholder="Optional note…"
+        placeholder="Optional note — written to the audit trail…"
         value={comment}
         onChange={(e) => onCommentChange(e.target.value)}
         disabled={isProcessing}
-        className="mt-3 w-full rounded-lg border border-line-soft bg-base px-2.5 py-2 text-xs text-ink outline-none focus:border-signal-blue disabled:opacity-50"
+        className="w-full rounded-lg bg-base px-2.5 py-2 text-xs text-ink outline-none disabled:opacity-50"
+        style={{ boxShadow: `0 0 0 1px ${C.lineSoft}` }}
       />
-
-      {/* Actions */}
-      <div className="mt-2.5 flex gap-2">
-        <button
-          onClick={onApprove}
-          disabled={isProcessing}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-signal-green py-2.5 text-[13px] font-bold text-[#06210f] hover:bg-green-600 hover:text-white disabled:opacity-60"
-        >
-          <CheckCircle size={14} />
-          {isProcessing ? 'Processing…' : 'Approve'}
-        </button>
-        <button
-          onClick={onReject}
-          disabled={isProcessing}
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-signal-red bg-signal-red/10 py-2.5 text-[13px] font-bold text-red-300 hover:bg-signal-red hover:text-white disabled:opacity-60"
-        >
-          <XCircle size={14} />
+      <div className="flex items-center gap-2.5">
+        <span className="font-mono text-[12px] text-ink-faint">
+          {isBuy ? 'buying power checked at send' : 'position checked at send'}
+        </span>
+        <button onClick={onReject} disabled={isProcessing} className="mf-btn-secondary ml-auto">
           Reject
         </button>
+        <button onClick={onApprove} disabled={isProcessing} className="mf-btn-primary">
+          {isProcessing ? 'Processing…' : 'Approve & send'}
+        </button>
       </div>
+    </div>
+  )
+}
+
+function Field({ label, value, small = false }: { label: string; value: string; small?: boolean }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-[11px] text-ink-faint">{label}</span>
+      <span className={`tabular font-medium leading-none ${small ? 'font-mono text-[13px]' : 'text-[20px]'}`}>
+        {value}
+      </span>
     </div>
   )
 }
@@ -333,37 +239,37 @@ const REASONING_META: Record<string, {
   Signal: {
     icon: <Target size={12} />,
     label: 'Signal Generator',
-    borderColor: '#3b82f6',
-    headerColor: '#93c5fd',
-    bgColor: '#3b82f608',
+    borderColor: '#968ae0',
+    headerColor: '#c8bef6',
+    bgColor: '#968ae008',
   },
   Bull: {
     icon: <TrendingUp size={12} />,
     label: 'Bull Case',
-    borderColor: '#22c55e',
-    headerColor: '#86efac',
-    bgColor: '#22c55e08',
+    borderColor: '#b5abfc',
+    headerColor: '#cfc6fd',
+    bgColor: '#b5abfc08',
   },
   Bear: {
     icon: <TrendingDown size={12} />,
     label: 'Bear Case',
-    borderColor: '#ef4444',
-    headerColor: '#fca5a5',
-    bgColor: '#ef444408',
+    borderColor: '#d97b84',
+    headerColor: '#e5a6ad',
+    bgColor: '#d97b8408',
   },
   Judge: {
     icon: <Scale size={12} />,
     label: 'Judge',
-    borderColor: '#a855f7',
-    headerColor: '#d8b4fe',
-    bgColor: '#a855f708',
+    borderColor: '#968ae0',
+    headerColor: '#d3c9fc',
+    bgColor: '#968ae008',
   },
   Risk: {
     icon: <Shield size={12} />,
     label: 'Risk Manager',
-    borderColor: '#f59e0b',
-    headerColor: '#fcd34d',
-    bgColor: '#f59e0b08',
+    borderColor: '#d9a05b',
+    headerColor: '#e7c188',
+    bgColor: '#d9a05b08',
   },
 }
 
@@ -401,7 +307,7 @@ function ReasoningSection({ reasoning }: { reasoning: string }) {
         const meta = REASONING_META[tag]
         if (!meta) {
           return (
-            <div key={tag} className="rounded-lg border border-line-soft p-3 text-[12px] text-ink-muted">
+            <div key={tag} className="rounded-lg p-3 text-[12px] text-ink-muted" style={{ boxShadow: `0 0 0 1px ${C.lineSoft}` }}>
               <div className="prose-mf leading-relaxed"><ReactMarkdown>{content}</ReactMarkdown></div>
             </div>
           )
@@ -419,7 +325,7 @@ function ReasoningSection({ reasoning }: { reasoning: string }) {
               {meta.icon}
               <span className="text-[11px] font-bold uppercase tracking-wider">{meta.label}</span>
             </div>
-            <div className="text-[12px] leading-relaxed text-slate-300">
+            <div className="text-[12px] leading-relaxed text-ink-muted">
               <ReactMarkdown>{content}</ReactMarkdown>
             </div>
           </div>

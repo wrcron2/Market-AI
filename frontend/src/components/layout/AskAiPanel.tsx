@@ -126,7 +126,7 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
             <option key={r}>{r}</option>
           ))}
         </select>
-        <div className="mt-1.5 text-[11px] leading-snug text-slate-600">{ROLE_DESC[role]}</div>
+        <div className="mt-1.5 text-[11px] leading-snug text-ink-faint">{ROLE_DESC[role]}</div>
 
         <div className="mb-1.5 mt-3 text-[11px] tracking-wide text-ink-faint">MODEL</div>
         <select
@@ -138,7 +138,7 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
             <option key={m} value={m}>{MODEL_LABELS[m].label}</option>
           ))}
         </select>
-        <div className="mt-1.5 text-[11px] leading-snug text-slate-600">{MODEL_LABELS[model].desc}</div>
+        <div className="mt-1.5 text-[11px] leading-snug text-ink-faint">{MODEL_LABELS[model].desc}</div>
       </div>
 
       {/* Quick actions */}
@@ -147,7 +147,7 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
           <button
             key={qa}
             onClick={() => send(qa)}
-            className="rounded-full border border-line-soft bg-surface-raised px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:border-signal-blue hover:text-blue-300"
+            className="rounded-full border border-line-soft bg-surface-raised px-2.5 py-1.5 text-[11.5px] text-ink-muted hover:border-signal-blue hover:text-signal-blue"
           >
             {qa}
           </button>
@@ -157,21 +157,21 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
       {/* Messages */}
       <div ref={scrollRef} className="mf-scroll flex flex-1 flex-col gap-3 overflow-y-auto p-3.5">
         {messages.length === 0 && (
-          <div className="m-auto max-w-[80%] text-center text-[12.5px] leading-relaxed text-slate-600">
-            Ask the <span className="text-blue-300">{role}</span> about your live system state.
+          <div className="m-auto max-w-[80%] text-center text-[12.5px] leading-relaxed text-ink-faint">
+            Ask the <span className="text-signal-blue">{role}</span> about your live system state.
           </div>
         )}
         {messages.map((m, i) =>
           m.role === 'user' ? (
             <div key={i} className="self-end">
-              <div className="max-w-[85%] rounded-xl rounded-tr-sm bg-blue-900 px-3 py-2.5 text-[12.5px] leading-snug text-blue-100">
+              <div className="max-w-[85%] rounded-xl rounded-tr-sm bg-accent-ring px-3 py-2.5 text-[12.5px] leading-snug text-[#e7e5fe]">
                 {m.text}
               </div>
             </div>
           ) : (
             <div key={i} className="self-start">
-              <div className="mb-1 text-[10px] font-semibold tracking-wide text-violet-400">{role}</div>
-              <div className="prose-mf max-w-[90%] rounded-xl rounded-tl-sm border border-line-soft bg-surface-raised px-3 py-2.5 text-[12.5px] leading-relaxed text-slate-300">
+              <div className="mb-1 text-[10px] font-semibold tracking-wide text-signal-purple">{role}</div>
+              <div className="prose-mf max-w-[90%] rounded-xl rounded-tl-sm border border-line-soft bg-surface-raised px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-muted">
                 <ReactMarkdown>{m.text}</ReactMarkdown>
               </div>
             </div>
@@ -192,7 +192,7 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
 
       {/* Composer */}
       <div className="border-t border-line-faint px-3.5 py-3">
-        <div className="mb-1.5 flex justify-between text-[10px] text-slate-600">
+        <div className="mb-1.5 flex justify-between text-[10px] text-ink-faint">
           <span>Context: live snapshot · {MODEL_LABELS[model].label}</span>
           <span>10/min</span>
         </div>
@@ -212,7 +212,7 @@ export function AskAiPanel({ open, onClose, onAsk, floating = false }: Props) {
           />
           <button
             onClick={() => send(input)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-signal-blue text-white hover:bg-blue-600"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-signal-blue text-white hover:bg-signal-blue/80"
           >
             <ArrowUp size={16} />
           </button>

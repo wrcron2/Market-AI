@@ -28,8 +28,8 @@ export function VersionsPanel() {
       const data = await res.json()
       setVersions(data.versions ?? [])
       setError(null)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setLoading(false)
     }
@@ -51,8 +51,8 @@ export function VersionsPanel() {
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       pollUntilBack()
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
       setSwitching(null)
     }
   }
@@ -92,8 +92,8 @@ export function VersionsPanel() {
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       setVersions((prev) => prev.map((v) => (v.tag === tag ? { ...v, note: draftNote } : v)))
       setEditing(null)
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
     }
@@ -115,12 +115,12 @@ export function VersionsPanel() {
       </div>
 
       {error && (
-        <div className="mb-3 rounded-lg border border-signal-red/30 bg-signal-red/10 px-3.5 py-2.5 text-xs text-red-300">
+        <div className="mb-3 rounded-lg border border-signal-red/30 bg-signal-red/10 px-3.5 py-2.5 text-xs text-signal-red">
           ⚠ {error}
         </div>
       )}
       {switching && (
-        <div className="mb-3 rounded-lg border border-signal-yellow/30 bg-signal-yellow/10 px-3.5 py-2.5 text-xs text-yellow-300">
+        <div className="mb-3 rounded-lg border border-signal-yellow/30 bg-signal-yellow/10 px-3.5 py-2.5 text-xs text-signal-yellow">
           Switching to <strong>{switching}</strong> — containers restarting…
         </div>
       )}
@@ -195,7 +195,7 @@ export function VersionsPanel() {
                     </td>
                     <td className={TD}>
                       {v.active ? (
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-signal-green/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-signal-green/15 px-2.5 py-0.5 text-[11px] font-semibold text-signal-green">
                           ● Active
                         </span>
                       ) : (
@@ -207,7 +207,7 @@ export function VersionsPanel() {
                         <button
                           onClick={() => switchVersion(v.tag)}
                           disabled={!!switching}
-                          className="rounded-lg border border-line bg-surface-hover px-3 py-1.5 text-xs font-semibold text-ink-muted hover:border-signal-blue hover:text-blue-300 disabled:opacity-50"
+                          className="rounded-lg border border-line bg-surface-hover px-3 py-1.5 text-xs font-semibold text-ink-muted hover:border-signal-blue hover:text-signal-blue disabled:opacity-50"
                         >
                           {switching === v.tag ? 'Switching…' : 'Switch to this'}
                         </button>

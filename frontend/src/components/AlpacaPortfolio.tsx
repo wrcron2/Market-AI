@@ -27,12 +27,14 @@ function fmtShortDate(unixMs: number): string {
 }
 
 const TH = 'px-4 py-2.5 text-left text-[10.5px] font-semibold uppercase tracking-wide text-ink-faint whitespace-nowrap'
+const THR = TH + ' text-right'
 const TD = 'px-4 py-3 text-[13px] whitespace-nowrap'
+const TDR = TD + ' text-right tabular'
 const dirChip = (buy: boolean) =>
-  `mf-chip ${buy ? 'bg-signal-green/15 text-emerald-400' : 'bg-signal-red/15 text-red-400'}`
+  `mf-chip ${buy ? 'bg-signal-green/15 text-signal-green' : 'bg-signal-red/15 text-signal-red'}`
 const pnlCls = (v: number) => (v >= 0 ? 'text-signal-green' : 'text-signal-red')
 const tag = 'rounded bg-surface-sunken px-2 py-0.5 text-[10px] font-semibold text-ink-muted'
-const sectionTitle = 'flex items-center gap-2.5 text-base font-semibold'
+const sectionTitle = 'flex items-center gap-2.5 text-[16px] font-semibold'
 const badge = 'rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] font-semibold text-ink-muted'
 
 export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
@@ -92,8 +94,8 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
       const res = await fetch(`/api/alpaca/positions/${symbol}/close`, { method: 'POST' })
       if (!res.ok) throw new Error(await res.text())
       await refresh()
-    } catch (e: any) {
-      setError(`Sell ${symbol} failed: ${e.message}`)
+    } catch (e) {
+      setError(`Sell ${symbol} failed: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setSelling(null)
     }
@@ -110,8 +112,8 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
       })
       if (!res.ok) throw new Error(await res.text())
       await refresh()
-    } catch (e: any) {
-      setError(`Retry failed: ${e.message}`)
+    } catch (e) {
+      setError(`Retry failed: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setRetrying(null)
     }
@@ -159,7 +161,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2.5 rounded-xl border border-line bg-surface px-4 py-6 text-sm text-ink-muted">
+      <div className="flex items-center gap-2.5 mf-card px-4 py-6 text-sm text-ink-muted">
         <RefreshCw size={18} className="animate-spin" />
         <span>Connecting to Alpaca paper account…</span>
       </div>
@@ -168,7 +170,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
 
   if (error) {
     return (
-      <div className="flex items-center gap-2.5 rounded-xl border border-signal-red/30 bg-signal-red/10 px-4 py-4 text-sm text-red-300">
+      <div className="flex items-center gap-2.5 rounded-lg border border-signal-red/30 bg-signal-red/10 px-4 py-4 text-sm text-signal-red">
         <AlertTriangle size={20} />
         <span>{error}</span>
         <button
@@ -187,14 +189,14 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
   return (
     <div className="flex flex-col gap-4 pb-8">
       {llmAlert && (
-        <div className="flex items-center gap-2 rounded-xl border border-signal-orange/30 bg-signal-orange/10 px-4 py-3 text-[13px] text-orange-300">
+        <div className="flex items-center gap-2 rounded-lg border border-signal-orange/30 bg-signal-orange/10 px-4 py-3 text-[13px] text-signal-orange">
           <AlertTriangle size={16} />
           <span>Position monitor LLM unreachable — all positions on HOLD. {llmAlert}</span>
-          <button className="ml-auto text-orange-300/70 hover:text-orange-200" onClick={onClearAlert}>✕</button>
+          <button className="ml-auto text-signal-orange/70 hover:text-signal-orange" onClick={onClearAlert}>✕</button>
         </div>
       )}
       {limits?.is_halted && (
-        <div className="flex items-center gap-2 rounded-xl border border-signal-red/30 bg-signal-red/10 px-4 py-3 text-[13px] text-red-300">
+        <div className="flex items-center gap-2 rounded-lg border border-signal-red/30 bg-signal-red/10 px-4 py-3 text-[13px] text-signal-red">
           <AlertTriangle size={16} />
           <span>Daily loss limit reached — new BUY orders are paused for today.</span>
         </div>
@@ -229,16 +231,20 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
         Open Positions <span className={badge}>{openCount}</span>
       </h3>
       {openCount === 0 ? (
-        <div className="rounded-xl border border-line bg-surface px-4 py-8 text-center text-sm text-ink-faint">No open positions</div>
+        <div className="mf-card px-4 py-8 text-center text-sm text-ink-faint">No open positions</div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-line bg-surface">
+        <div className="overflow-hidden mf-card">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b border-line-soft">
-                  {['Symbol', 'Side', 'Qty', 'Bought', 'Entry', 'Current', 'Mkt Value', 'Unrealized P&L', 'P&L %', 'Status', 'Sell'].map((c) => (
-                    <th key={c} className={TH}>{c}</th>
+                  <th className={TH}>Symbol</th>
+                  <th className={TH}>Side</th>
+                  {['Qty', 'Bought', 'Entry', 'Current', 'Mkt Value', 'Unrealized P&L', 'P&L %'].map((c) => (
+                    <th key={c} className={THR}>{c}</th>
                   ))}
+                  <th className={TH}>Status</th>
+                  <th className={THR}>Sell</th>
                 </tr>
               </thead>
               <tbody>
@@ -251,25 +257,25 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                     <tr key={pos.symbol} className="border-b border-line-faint hover:bg-surface-hover">
                       <td className={`${TD} font-mono font-bold`}>{pos.symbol}</td>
                       <td className={TD}><span className={dirChip(isLong)}>{isLong ? 'LONG' : 'SHORT'}</span></td>
-                      <td className={`${TD} font-mono`}>{parseFloat(pos.qty).toLocaleString()}</td>
-                      <td className={`${TD} text-ink-faint`}>{entryTs ? fmtDate(entryTs) : '—'}</td>
-                      <td className={`${TD} font-mono`}>${parseFloat(pos.avg_entry_price).toFixed(2)}</td>
-                      <td className={`${TD} font-mono`}>${parseFloat(pos.current_price).toFixed(2)}</td>
-                      <td className={`${TD} font-mono`}>${parseFloat(pos.market_value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className={`${TD} font-mono ${pnlCls(pl)}`}>{pl >= 0 ? '+' : ''}${pl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                      <td className={`${TD} font-mono ${pnlCls(pl)}`}>
-                        <span className="inline-flex items-center gap-1">
+                      <td className={`${TDR} font-mono`}>{parseFloat(pos.qty).toLocaleString()}</td>
+                      <td className={`${TDR} text-ink-faint`}>{entryTs ? fmtDate(entryTs) : '—'}</td>
+                      <td className={`${TDR} font-mono`}>${parseFloat(pos.avg_entry_price).toFixed(2)}</td>
+                      <td className={`${TDR} font-mono`}>${parseFloat(pos.current_price).toFixed(2)}</td>
+                      <td className={`${TDR} font-mono`}>${parseFloat(pos.market_value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className={`${TDR} font-mono ${pnlCls(pl)}`}>{pl >= 0 ? '+' : ''}${pl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td className={`${TDR} font-mono ${pnlCls(pl)}`}>
+                        <span className="inline-flex items-center justify-end gap-1">
                           {isLong ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
                           {plpc >= 0 ? '+' : ''}{plpc.toFixed(2)}%
                         </span>
                       </td>
                       <td className={TD}><span className={tag}>filled</span></td>
-                      <td className={TD}>
+                      <td className={TDR}>
                         <button
                           onClick={() => sellPosition(pos.symbol)}
                           disabled={!!selling}
                           title={`Close ${pos.symbol} at market`}
-                          className="rounded-md border border-signal-red bg-signal-red/10 px-2.5 py-1 text-[11px] font-semibold text-red-300 hover:bg-signal-red hover:text-white disabled:opacity-50"
+                          className="rounded-md border border-signal-red bg-signal-red/10 px-2.5 py-1 text-[11px] font-semibold text-signal-red hover:bg-signal-red hover:text-white disabled:opacity-50"
                         >
                           {selling === pos.symbol ? 'Closing…' : 'Sell'}
                         </button>
@@ -310,9 +316,9 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
               <ResponsiveContainer width="100%" height={260}>
                 <LineChart data={equityChartData} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9397ab' }} />
                   <YAxis
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
+                    tick={{ fontSize: 11, fill: '#9397ab' }}
                     tickFormatter={(v) => `$${(v as number).toLocaleString('en-US', { maximumFractionDigits: 0 })}`}
                     width={80}
                     domain={['auto', 'auto']}
@@ -360,18 +366,18 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                       )
                     }}
                   />
-                  <ReferenceLine y={baselineEquity} stroke="#475569" strokeDasharray="4 4" />
+                  <ReferenceLine y={baselineEquity} stroke="#75798c" strokeDasharray="4 4" />
                   <Line
                     type="monotone"
                     dataKey="equity"
-                    stroke="#3b82f6"
+                    stroke="#968ae0"
                     strokeWidth={2}
-                    dot={(props: any) => {
+                    dot={(props: { cx?: number; cy?: number; payload?: { isLive?: boolean }; index?: number }) => {
                       const { cx, cy, payload, index } = props
                       if (!payload?.isLive) return <g key={index} />
-                      return <circle key={index} cx={cx} cy={cy} r={5} fill="#3b82f6" stroke="#0d1117" strokeWidth={2} />
+                      return <circle key={index} cx={cx} cy={cy} r={5} fill="#968ae0" stroke="#161826" strokeWidth={2} />
                     }}
-                    activeDot={{ r: 5, fill: '#3b82f6' }}
+                    activeDot={{ r: 5, fill: '#968ae0' }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -389,11 +395,11 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
                 <ResponsiveContainer width="100%" height={220}>
                   <LineChart data={cumulativeData} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                    <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `$${v}`} width={60} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#9397ab' }} />
+                    <YAxis tick={{ fontSize: 11, fill: '#9397ab' }} tickFormatter={(v) => `$${v}`} width={60} />
                     <Tooltip content={<PnlTooltip suffix="Cumulative P&L" />} />
-                    <ReferenceLine y={0} stroke="#475569" />
-                    <Line type="monotone" dataKey="cumPnl" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6' }} activeDot={{ r: 5 }} />
+                    <ReferenceLine y={0} stroke="#75798c" />
+                    <Line type="monotone" dataKey="cumPnl" stroke="#968ae0" strokeWidth={2} dot={{ r: 3, fill: '#968ae0' }} activeDot={{ r: 5 }} />
                   </LineChart>
                 </ResponsiveContainer>
               </ChartCard>
@@ -413,7 +419,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
           <h3 className={`${sectionTitle} mt-4`}>
             Closed Today <span className={badge}>{dbPositions.filter((p) => p.status === 'CLOSED').length}</span>
           </h3>
-          <div className="overflow-hidden rounded-xl border border-line bg-surface">
+          <div className="overflow-hidden mf-card">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -448,10 +454,10 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
       {/* Failed Orders */}
       {failedOrders.length > 0 && (
         <>
-          <h3 className={`${sectionTitle} mt-4 text-red-400`}>
-            Failed Orders <span className="rounded-full bg-signal-red/15 px-2 py-0.5 text-[11px] font-semibold text-red-300">{failedOrders.length}</span>
+          <h3 className={`${sectionTitle} mt-4 text-signal-red`}>
+            Failed Orders <span className="rounded-full bg-signal-red/15 px-2 py-0.5 text-[11px] font-semibold text-signal-red">{failedOrders.length}</span>
           </h3>
-          <div className="overflow-hidden rounded-xl border border-line bg-surface">
+          <div className="overflow-hidden mf-card">
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
@@ -493,7 +499,7 @@ export function AlpacaPortfolio({ llmAlert, onClearAlert }: Props) {
 
 function AccountStat({ label, value, color = '' }: { label: string; value: string; color?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
+    <div className="mf-card p-4">
       <div className={`tabular font-mono text-[19px] font-semibold ${color}`}>{value}</div>
       <div className="mt-1 text-[11px] uppercase tracking-wide text-ink-faint">{label}</div>
     </div>
@@ -502,17 +508,17 @@ function AccountStat({ label, value, color = '' }: { label: string; value: strin
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-line bg-surface p-4">
+    <div className="mf-card p-4">
       <div className="mb-3 text-[13px] font-semibold text-ink-muted">{title}</div>
       {children}
     </div>
   )
 }
 
-function PnlTooltip({ active, payload, label, suffix }: any) {
+function PnlTooltip({ active, payload, label, suffix }: { active?: boolean; payload?: { value?: number }[]; label?: string; suffix: string }) {
   if (!active || !payload?.length) return null
   const val = payload[0]?.value as number
-  const color = val >= 0 ? '#22c55e' : '#ef4444'
+  const color = val >= 0 ? '#b5abfc' : '#d97b84'
   return (
     <div className="rounded-lg bg-surface-raised px-3 py-2" style={{ border: `1px solid ${color}` }}>
       <div className="text-[11px] text-ink-muted">{label}</div>
@@ -527,13 +533,13 @@ function PnlBarChart({ data, suffix }: { data: { name: string; pnl: number }[]; 
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-        <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-        <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={(v) => `$${v}`} width={60} />
+        <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#9397ab' }} />
+        <YAxis tick={{ fontSize: 11, fill: '#9397ab' }} tickFormatter={(v) => `$${v}`} width={60} />
         <Tooltip content={<PnlTooltip suffix={suffix} />} />
-        <ReferenceLine y={0} stroke="#475569" />
+        <ReferenceLine y={0} stroke="#75798c" />
         <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
           {data.map((entry, i) => (
-            <Cell key={i} fill={entry.pnl >= 0 ? '#22c55e' : '#ef4444'} />
+            <Cell key={i} fill={entry.pnl >= 0 ? '#b5abfc' : '#d97b84'} />
           ))}
         </Bar>
       </BarChart>

@@ -11,6 +11,7 @@ backend/logs/
 # Python
 ai-brain/__pycache__/
 ai-brain/.venv/
+.venv-v24/
 ai-brain/*.egg-info/
 ai-brain/dist/
 **/__pycache__/

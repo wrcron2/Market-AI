@@ -1,59 +1,57 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { GreenLightPanel } from './GreenLightPanel'
-import { SignalFeed, type FeedEvent } from './SignalFeed'
-import { PortfolioStats, type Stats } from './PortfolioStats'
-import { TradingModeToggle, useTradingMode } from './TradingModeToggle'
-import { AutoExecuteToggle, useAutoExecute } from './AutoExecuteToggle'
-import { LLMProviderToggle, useLLMProvider } from './LLMProviderToggle'
+import { type FeedEvent } from './SignalFeed'
+import { type Stats } from './PortfolioStats'
+import { useTradingMode } from '../hooks/useTradingMode'
+import { useAutoExecute } from '../hooks/useAutoExecute'
+import { useLLMProvider } from '../hooks/useLLMProvider'
 import { AlpacaPortfolio } from './AlpacaPortfolio'
-import { VersionsPanel } from './VersionsPanel'
-import { AuditLog } from './AuditLog'
-import { AlertsPanel } from './AlertsPanel'
-import { PipelinePanel } from './PipelinePanel'
-import { ReportsPanel } from './ReportsPanel'
-import { InvestedStocks } from './InvestedStocks'
-import { BrainActivityFeed, type BrainEvent } from './BrainActivityFeed'
+import { DashboardPage } from './DashboardPage'
+import { FortressPage } from './FortressPage'
+import { ExecutionPage } from './ExecutionPage'
+import { OpsPage } from './OpsPage'
+import { RoadmapPage } from './RoadmapPage'
+import { type BrainEvent } from './BrainActivityFeed'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useMarketStatus } from '../hooks/useMarketStatus'
-import type { StagedOrder, ListPendingResponse } from '../types'
+import type { StagedOrder, ListPendingResponse, AlpacaAccount, AlpacaPosition, TradingLimits } from '../types'
 import { AppShell } from './layout/AppShell'
 import { Sidebar } from './layout/Sidebar'
 import { TopBar } from './layout/TopBar'
 import { AskAiPanel } from './layout/AskAiPanel'
-import { Card } from './ui/primitives'
+import { KillSwitchDialog } from './layout/KillSwitchDialog'
+import { PageHead } from './ui/primitives'
 
 const API_BASE = '/api'
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws`
 const MAX_FEED_EVENTS = 100
 
-export type Tab = 'signals' | 'portfolio' | 'reports' | 'alerts' | 'audit' | 'versions' | 'pipeline' | 'config'
+export type Tab = 'dashboard' | 'green-light' | 'positions' | 'fortress' | 'execution' | 'ops' | 'roadmap'
 
-const BREADCRUMB: Record<Tab, string> = {
-  signals: 'Live Signals',
-  portfolio: 'Alpaca Portfolio',
-  reports: 'Strategy Reports',
-  alerts: 'Alerts',
-  audit: 'Audit Log',
-  versions: 'Versions & Deploy',
-  pipeline: 'AI Pipeline',
-  config: 'Configuration',
+const TAB_VALUES: Tab[] = ['dashboard', 'green-light', 'positions', 'fortress', 'execution', 'ops', 'roadmap']
+
+/** Old paths redirect to the new IA — nothing 404s. */
+const REDIRECTS: Record<string, Tab> = {
+  '': 'dashboard',
+  signals: 'dashboard',
+  portfolio: 'positions',
+  reports: 'fortress',
+  pipeline: 'execution',
+  audit: 'execution',
+  versions: 'execution',
+  config: 'ops',
+  alerts: 'ops',
 }
-
-const TAB_VALUES = Object.keys({
-  signals: 0, portfolio: 0, reports: 0, alerts: 0, audit: 0, versions: 0, pipeline: 0, config: 0,
-} satisfies Record<Tab, number>) as Tab[]
 
 function normalizePathSegment(pathname: string): string {
   return pathname.replace(/^\/+/, '').replace(/\/+$/, '')
 }
 
-// Returns null when the path segment isn't a known tab (root, trailing
-// slash mismatches, or an unrecognized path) so callers can fall back to
-// a legacy `?tab=` query param before defaulting to 'signals'.
 function tabFromPath(pathname: string): Tab | null {
   const segment = normalizePathSegment(pathname)
-  return (TAB_VALUES as string[]).includes(segment) ? (segment as Tab) : null
+  if ((TAB_VALUES as string[]).includes(segment)) return segment as Tab
+  return REDIRECTS[segment] ?? null
 }
 
 export function Dashboard() {
@@ -63,22 +61,26 @@ export function Dashboard() {
   const { isOpen: marketOpen, minutesUntilClose: marketMinutes } = useMarketStatus()
   const location = useLocation()
   const navigate = useNavigate()
-  // Path segment wins when it's a known tab. Otherwise fall back to a
-  // legacy `?tab=` query param (old bookmarks/links), then 'signals'.
+  // Path segment wins (old segments redirect). Otherwise fall back to a legacy
+  // `?tab=` query param (old bookmarks/links), then 'dashboard'.
   const legacyTabParam = new URLSearchParams(location.search).get('tab')
-  const activeTab: Tab =
-    tabFromPath(location.pathname) ??
-    (legacyTabParam && (TAB_VALUES as string[]).includes(legacyTabParam) ? (legacyTabParam as Tab) : 'signals')
+  const legacyTab: Tab | null = legacyTabParam
+    ? (REDIRECTS[legacyTabParam] ??
+      ((TAB_VALUES as string[]).includes(legacyTabParam) ? (legacyTabParam as Tab) : null))
+    : null
+  const activeTab: Tab = tabFromPath(location.pathname) ?? legacyTab ?? 'dashboard'
   const setActiveTab = useCallback((tab: Tab) => navigate(`/${tab}`), [navigate])
-  const [navCollapsed, setNavCollapsed] = useState(false)
   const [askOpen, setAskOpen] = useState(true)
+  const [killOpen, setKillOpen] = useState(false)
   const [pendingOrders, setPendingOrders] = useState<StagedOrder[]>([])
   const [feedEvents, setFeedEvents] = useState<FeedEvent[]>([])
   const [brainEvents, setBrainEvents] = useState<BrainEvent[]>([])
   const [wsConnected, setWsConnected] = useState(false)
   const [llmAlert, setLlmAlert] = useState<string | null>(null)
   const [llmFallbackActive, setLlmFallbackActive] = useState(false)
-  const [equity, setEquity] = useState<number | null>(null)
+  const [account, setAccount] = useState<AlpacaAccount | null>(null)
+  const [alpacaPositions, setAlpacaPositions] = useState<AlpacaPosition[]>([])
+  const [limits, setLimits] = useState<TradingLimits | null>(null)
   const [eodRefreshToken, setEodRefreshToken] = useState(0)
   const [stats, setStats] = useState<Stats>({
     totalSignals: 0,
@@ -150,7 +152,7 @@ export function Dashboard() {
         pushEvent({ id: symbol, type: 'debate_failed', message: error, timestamp: Date.now() })
       },
       position_opened: () => {
-        if (activeTab !== 'portfolio') setActiveTab('portfolio')
+        if (activeTab !== 'positions') setActiveTab('positions')
       },
       position_closed: () => {
         /* AlpacaPortfolio handles its own refresh */
@@ -177,9 +179,8 @@ export function Dashboard() {
     },
   })
 
-  // Canonicalize "/", any unknown path, a trailing slash, or a legacy
-  // "?tab=" link to the matching path-based route — preserving any other
-  // query params (e.g. `?tab=reports&date=x` -> `/reports?date=x`).
+  // Canonicalize "/", old paths, a trailing slash, or a legacy "?tab=" link to
+  // the matching new route — preserving any other query params.
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     let needsRewrite = false
@@ -243,14 +244,17 @@ export function Dashboard() {
       }
     }
 
-    // Live portfolio value for the top-bar ticker.
-    const loadEquity = async () => {
+    // Live Alpaca snapshot for the top bar + dashboard vitals.
+    const loadAccount = async () => {
       try {
-        const res = await fetch(`${API_BASE}/alpaca/account`)
-        if (!res.ok) return
-        const data = await res.json()
-        const v = parseFloat(data.portfolio_value ?? data.equity)
-        if (!Number.isNaN(v)) setEquity(v)
+        const [acctRes, posRes, limRes] = await Promise.all([
+          fetch(`${API_BASE}/alpaca/account`),
+          fetch(`${API_BASE}/alpaca/positions`),
+          fetch(`${API_BASE}/trading/limits`),
+        ])
+        if (acctRes.ok) setAccount(await acctRes.json())
+        if (posRes.ok) setAlpacaPositions(await posRes.json())
+        if (limRes.ok) setLimits(await limRes.json())
       } catch {
         /* backend not yet up */
       }
@@ -259,10 +263,10 @@ export function Dashboard() {
     loadPending()
     loadStats()
     loadRecentFeed()
-    loadEquity()
+    loadAccount()
     const interval = setInterval(() => {
       loadPending()
-      loadEquity()
+      loadAccount()
     }, 30_000)
     return () => clearInterval(interval)
   }, [])
@@ -295,48 +299,50 @@ export function Dashboard() {
     }
   }, [toggle])
 
-  // Cmd+Shift+H → HALT
+  // Cmd+Shift+H → open kill-switch dialog
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'h') {
         e.preventDefault()
-        halt()
+        setKillOpen(true)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [halt])
+  }, [])
+
+  const portfolioValue = account ? parseFloat(account.portfolio_value ?? account.equity) : null
+  const dayPnl = account
+    ? parseFloat(account.equity ?? '0') - parseFloat(account.last_equity ?? '0')
+    : null
+  const grossExposure = alpacaPositions.reduce(
+    (s, p) => s + Math.abs(parseFloat(p.market_value || '0')),
+    0,
+  )
 
   return (
     <AppShell
       sidebar={
         <Sidebar
-          collapsed={navCollapsed}
           active={activeTab}
           pendingCount={pendingOrders.length}
-          mode={mode}
-          marketOpen={marketOpen}
           onNavigate={setActiveTab}
-          onToggle={() => setNavCollapsed((c) => !c)}
         />
       }
       topbar={
         <TopBar
-          breadcrumb={BREADCRUMB[activeTab]}
           wsConnected={wsConnected}
           autoExec={autoExec}
           mode={mode}
-          portfolioValue={equity}
+          portfolioValue={portfolioValue != null && !Number.isNaN(portfolioValue) ? portfolioValue : null}
+          dayPnl={dayPnl != null && !Number.isNaN(dayPnl) ? dayPnl : null}
           marketOpen={marketOpen}
           marketMinutes={marketMinutes}
           alertCount={pendingOrders.length}
           llmDegraded={llmFallbackActive}
-          onToggleNav={() => setNavCollapsed((c) => !c)}
           onToggleAsk={() => setAskOpen((o) => !o)}
-          onHalt={halt}
-          onAutoClick={() => setActiveTab('config')}
-          onBell={() => setActiveTab('alerts')}
-          onSettings={() => setActiveTab('config')}
+          onBell={() => setActiveTab('ops')}
+          onKill={() => setKillOpen(true)}
         />
       }
       rightPanel={
@@ -356,46 +362,49 @@ export function Dashboard() {
         />
       }
     >
-      {activeTab === 'signals' && (
-        <div className="flex flex-col gap-4">
-          <PortfolioStats stats={stats} wsConnected={wsConnected} />
-          <InvestedStocks />
-          <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1.15fr_1fr]">
-            <GreenLightPanel orders={pendingOrders} onApprove={approve} onReject={reject} />
-            <SignalFeed events={feedEvents} />
-          </div>
-          <BrainActivityFeed liveEvents={brainEvents} />
+      {activeTab === 'dashboard' && (
+        <DashboardPage
+          account={account}
+          positions={alpacaPositions}
+          limits={limits}
+          stats={stats}
+          pendingOrders={pendingOrders}
+          feedEvents={feedEvents}
+          brainEvents={brainEvents}
+          marketOpen={marketOpen}
+          modeLabel={mode === 'ibkr' ? 'Alpaca paper' : 'Yahoo sim'}
+          onNavigate={setActiveTab}
+        />
+      )}
+
+      {activeTab === 'green-light' && (
+        <GreenLightPanel orders={pendingOrders} onApprove={approve} onReject={reject} />
+      )}
+
+      {activeTab === 'positions' && (
+        <div className="flex flex-col gap-[22px]">
+          <PageHead
+            eyebrow="Positions"
+            title={`${alpacaPositions.length} open · Alpaca paper`}
+          />
+          <AlpacaPortfolio llmAlert={llmAlert} onClearAlert={() => setLlmAlert(null)} />
         </div>
       )}
 
-      {activeTab === 'portfolio' && (
-        <AlpacaPortfolio llmAlert={llmAlert} onClearAlert={() => setLlmAlert(null)} />
+      {activeTab === 'fortress' && <FortressPage eodRefreshToken={eodRefreshToken} />}
+      {activeTab === 'execution' && <ExecutionPage brainEvents={brainEvents} />}
+      {activeTab === 'ops' && (
+        <OpsPage mode={mode} onModeChange={changeMode} autoExec={autoExec} onAutoExecChange={toggle} />
       )}
-      {activeTab === 'reports' && <ReportsPanel eodRefreshToken={eodRefreshToken} />}
-      {activeTab === 'alerts' && <AlertsPanel />}
-      {activeTab === 'audit' && <AuditLog />}
-      {activeTab === 'versions' && <VersionsPanel />}
-      {activeTab === 'pipeline' && <PipelinePanel />}
+      {activeTab === 'roadmap' && <RoadmapPage />}
 
-      {activeTab === 'config' && (
-        <div className="flex max-w-[680px] flex-col gap-4">
-          <h1 className="text-[22px] font-semibold tracking-tight">Configuration</h1>
-          <p className="-mt-2 text-[13px] text-ink-faint">
-            Every change is timestamped and written to the audit trail.
-          </p>
-          <Card className="p-[18px]">
-            <AutoExecuteToggle enabled={autoExec} onChange={toggle} />
-          </Card>
-          <Card className="p-[18px]">
-            <div className="mb-3 text-sm font-semibold">LLM Provider</div>
-            <LLMProviderToggle />
-          </Card>
-          <Card className="p-[18px]">
-            <div className="mb-3 text-sm font-semibold">Trading Mode</div>
-            <TradingModeToggle mode={mode} onChange={changeMode} />
-          </Card>
-        </div>
-      )}
+      <KillSwitchDialog
+        open={killOpen}
+        onClose={() => setKillOpen(false)}
+        onConfirm={halt}
+        positionsCount={account ? alpacaPositions.length : null}
+        grossExposure={account ? grossExposure : null}
+      />
     </AppShell>
   )
 }

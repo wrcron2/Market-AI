@@ -15,7 +15,7 @@ interface EODReport {
   created_at: number
 }
 
-const pnlColor = (v: number) => (v >= 0 ? 'text-emerald-400' : 'text-red-400')
+const pnlColor = (v: number) => (v >= 0 ? 'text-signal-green' : 'text-signal-red')
 const pnlSign = (v: number) => (v >= 0 ? '+' : '')
 
 function fmtUSD(n: number): string {
@@ -121,7 +121,7 @@ export function EndOfDayReport({ refreshToken }: { refreshToken?: number }) {
     <div className="overflow-hidden rounded-xl border border-line bg-surface">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line-soft px-5 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-signal-blue/10 text-blue-400">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-signal-blue/10 text-signal-blue">
             <FileText size={17} />
           </div>
           <div>
@@ -155,7 +155,7 @@ export function EndOfDayReport({ refreshToken }: { refreshToken?: number }) {
               title="Copy a shareable link to this report"
               className="flex items-center gap-1.5 rounded-lg border border-line-soft bg-surface-sunken px-3 py-1.5 text-[12px] font-medium text-ink-muted transition-colors hover:bg-surface-hover hover:text-ink"
             >
-              {copied ? <Check size={13} className="text-emerald-400" /> : <Link2 size={13} />}
+              {copied ? <Check size={13} className="text-signal-green" /> : <Link2 size={13} />}
               {copied ? 'Copied' : 'Share'}
             </button>
           </div>

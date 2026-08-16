@@ -19,12 +19,12 @@ interface AuditEntry {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDING:  '#f59e0b',
-  APPROVED: '#3b82f6',
-  EXECUTED: '#22c55e',
-  REJECTED: '#ef4444',
-  FAILED:   '#ef4444',
-  EXPIRED:  '#6b7280',
+  PENDING:  '#d9a05b',
+  APPROVED: '#968ae0',
+  EXECUTED: '#b5abfc',
+  REJECTED: '#d97b84',
+  FAILED:   '#d97b84',
+  EXPIRED:  '#75798c',
 }
 
 const PAGE_SIZES = [25, 50, 100]
@@ -56,7 +56,7 @@ function explainTransition(e: AuditEntry): string {
 }
 
 function statusBadge(status: string) {
-  const color = STATUS_COLORS[status] ?? '#6b7280'
+  const color = STATUS_COLORS[status] ?? '#75798c'
   return (
     <span style={{
       background: color + '22', color, border: `1px solid ${color}55`,
@@ -105,13 +105,13 @@ export function AuditLog() {
   return (
     <div style={{ padding: '0 0 24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#e2e8f0' }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: '#e9e9ed' }}>
           Audit Events
         </h2>
         <button
           onClick={load}
           style={{
-            background: 'transparent', border: '1px solid #334155', color: '#94a3b8',
+            background: 'transparent', border: '1px solid #3f424d', color: '#9397ab',
             borderRadius: 6, padding: '4px 12px', cursor: 'pointer', fontSize: 12,
             display: 'flex', alignItems: 'center', gap: 5,
           }}
@@ -119,25 +119,25 @@ export function AuditLog() {
           <RefreshCw size={11} /> Refresh
         </button>
       </div>
-      <p style={{ margin: '0 0 14px', fontSize: 12, color: '#64748b', lineHeight: 1.6 }}>
-        Every state change of every order. <b style={{ color: '#94a3b8' }}>Click a row</b> to see the trade
+      <p style={{ margin: '0 0 14px', fontSize: 12, color: '#75798c', lineHeight: 1.6 }}>
+        Every state change of every order. <b style={{ color: '#9397ab' }}>Click a row</b> to see the trade
         details, the AI's reasoning, and what the transition means. Lifecycle:{' '}
-        {statusBadge('PENDING')} <span style={{ color: '#475569' }}>staged, no money moved</span>{' '}
-        → {statusBadge('APPROVED')} <span style={{ color: '#475569' }}>cleared to trade</span>{' '}
-        → {statusBadge('EXECUTED')} <span style={{ color: '#475569' }}>filled on Alpaca</span>.
+        {statusBadge('PENDING')} <span style={{ color: '#75798c' }}>staged, no money moved</span>{' '}
+        → {statusBadge('APPROVED')} <span style={{ color: '#75798c' }}>cleared to trade</span>{' '}
+        → {statusBadge('EXECUTED')} <span style={{ color: '#75798c' }}>filled on Alpaca</span>.
       </p>
 
-      {loading && <p style={{ color: '#64748b', fontSize: 14 }}>Loading…</p>}
-      {error && <p style={{ color: '#ef4444', fontSize: 14 }}>Error: {error}</p>}
+      {loading && <p style={{ color: '#75798c', fontSize: 14 }}>Loading…</p>}
+      {error && <p style={{ color: '#d97b84', fontSize: 14 }}>Error: {error}</p>}
       {!loading && !error && entries.length === 0 && (
-        <p style={{ color: '#64748b', fontSize: 14 }}>No audit events yet.</p>
+        <p style={{ color: '#75798c', fontSize: 14 }}>No audit events yet.</p>
       )}
 
       {entries.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, color: '#cbd5e1' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, color: '#d6d7de' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #1e293b', color: '#64748b', textAlign: 'left' }}>
+              <tr style={{ borderBottom: '1px solid #31333d', color: '#75798c', textAlign: 'left' }}>
                 <th style={{ padding: '6px 6px', width: 20 }} />
                 <th style={{ padding: '6px 10px', fontWeight: 600 }}>Time</th>
                 <th style={{ padding: '6px 10px', fontWeight: 600 }}>Symbol</th>
@@ -156,64 +156,64 @@ export function AuditLog() {
                     <tr
                       key={e.id}
                       onClick={() => setExpanded(isOpen ? null : e.id)}
-                      style={{ borderBottom: isOpen ? 'none' : '1px solid #0f172a', cursor: 'pointer' }}
-                      onMouseEnter={(ev) => (ev.currentTarget.style.background = '#161d2d')}
+                      style={{ borderBottom: isOpen ? 'none' : '1px solid #262833', cursor: 'pointer' }}
+                      onMouseEnter={(ev) => (ev.currentTarget.style.background = '#1d1f2c')}
                       onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
                     >
-                      <td style={{ padding: '6px 6px', color: '#475569' }}>
+                      <td style={{ padding: '6px 6px', color: '#75798c' }}>
                         {isOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
                       </td>
-                      <td style={{ padding: '6px 10px', whiteSpace: 'nowrap', color: '#64748b' }}>
+                      <td style={{ padding: '6px 10px', whiteSpace: 'nowrap', color: '#75798c' }}>
                         {new Date(e.timestamp).toLocaleString()}
                       </td>
-                      <td style={{ padding: '6px 10px', fontWeight: 700, color: '#93c5fd', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '6px 10px', fontWeight: 700, color: '#c8bef6', whiteSpace: 'nowrap' }}>
                         {e.symbol || '—'}
                       </td>
-                      <td style={{ padding: '6px 10px', whiteSpace: 'nowrap', color: '#94a3b8' }}>
+                      <td style={{ padding: '6px 10px', whiteSpace: 'nowrap', color: '#9397ab' }}>
                         {e.symbol ? (
                           <>
-                            <b style={{ color: e.direction === 'BUY' ? '#22c55e' : '#ef4444' }}>{e.direction}</b>
+                            <b style={{ color: e.direction === 'BUY' ? '#b5abfc' : '#d97b84' }}>{e.direction}</b>
                             {' '}{e.quantity.toLocaleString()}
                             {e.limit_price > 0 && <> @ ${e.limit_price.toFixed(2)}</>}
-                            <span style={{ color: '#475569' }}> · conf {(e.confidence * 100).toFixed(0)}%</span>
+                            <span style={{ color: '#75798c' }}> · conf {(e.confidence * 100).toFixed(0)}%</span>
                           </>
                         ) : '—'}
                       </td>
                       <td style={{ padding: '6px 10px', whiteSpace: 'nowrap' }}>
                         {e.from_status
-                          ? <>{statusBadge(e.from_status)} <span style={{ color: '#475569', margin: '0 4px' }}>→</span> {statusBadge(e.to_status)}</>
+                          ? <>{statusBadge(e.from_status)} <span style={{ color: '#75798c', margin: '0 4px' }}>→</span> {statusBadge(e.to_status)}</>
                           : statusBadge(e.to_status)}
                       </td>
-                      <td style={{ padding: '6px 10px', color: '#94a3b8', whiteSpace: 'nowrap' }}>{e.actor}</td>
-                      <td style={{ padding: '6px 10px', color: '#64748b', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td style={{ padding: '6px 10px', color: '#9397ab', whiteSpace: 'nowrap' }}>{e.actor}</td>
+                      <td style={{ padding: '6px 10px', color: '#75798c', maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {e.message}
                       </td>
                     </tr>
                     {isOpen && (
-                      <tr key={`${e.id}-detail`} style={{ borderBottom: '1px solid #0f172a' }}>
+                      <tr key={`${e.id}-detail`} style={{ borderBottom: '1px solid #262833' }}>
                         <td colSpan={7} style={{ padding: '4px 10px 14px 36px' }}>
                           <div style={{
-                            background: '#0d1117', border: '1px solid #1e293b', borderRadius: 10,
+                            background: '#161826', border: '1px solid #31333d', borderRadius: 10,
                             padding: '12px 16px', fontSize: 12.5, lineHeight: 1.7,
                           }}>
                             {explanation && (
-                              <p style={{ margin: '0 0 8px', color: '#e2e8f0' }}>
-                                <b style={{ color: '#a855f7' }}>What this means: </b>{explanation}
+                              <p style={{ margin: '0 0 8px', color: '#e9e9ed' }}>
+                                <b style={{ color: '#968ae0' }}>What this means: </b>{explanation}
                               </p>
                             )}
-                            <p style={{ margin: '0 0 8px', color: '#94a3b8' }}>
-                              <b style={{ color: '#64748b' }}>Full message: </b>{e.message || '—'}
-                              <span style={{ color: '#475569' }}> · Signal </span>
-                              <span style={{ fontFamily: 'monospace', color: '#64748b' }}>{e.signal_id}</span>
-                              {e.strategy_name && <span style={{ color: '#475569' }}> · Strategy {e.strategy_name}</span>}
+                            <p style={{ margin: '0 0 8px', color: '#9397ab' }}>
+                              <b style={{ color: '#75798c' }}>Full message: </b>{e.message || '—'}
+                              <span style={{ color: '#75798c' }}> · Signal </span>
+                              <span style={{ fontFamily: 'monospace', color: '#75798c' }}>{e.signal_id}</span>
+                              {e.strategy_name && <span style={{ color: '#75798c' }}> · Strategy {e.strategy_name}</span>}
                             </p>
                             {e.reasoning && (
                               <details>
-                                <summary style={{ color: '#3b82f6', cursor: 'pointer', fontSize: 12 }}>
+                                <summary style={{ color: '#968ae0', cursor: 'pointer', fontSize: 12 }}>
                                   AI reasoning (signal · bull · bear · judge · risk)
                                 </summary>
                                 <pre style={{
-                                  whiteSpace: 'pre-wrap', color: '#94a3b8', fontSize: 11.5,
+                                  whiteSpace: 'pre-wrap', color: '#9397ab', fontSize: 11.5,
                                   fontFamily: 'inherit', margin: '8px 0 0', maxHeight: 260, overflowY: 'auto',
                                 }}>
                                   {e.reasoning}
@@ -238,16 +238,16 @@ export function AuditLog() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           marginTop: 14, flexWrap: 'wrap', gap: 10,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#64748b' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#75798c' }}>
             Rows per page:
             {PAGE_SIZES.map((s) => (
               <button
                 key={s}
                 onClick={() => { setPageSize(s); setPage(0) }}
                 style={{
-                  background: pageSize === s ? '#1e3a5f' : 'transparent',
-                  color: pageSize === s ? '#60a5fa' : '#64748b',
-                  border: `1px solid ${pageSize === s ? '#3b82f640' : '#334155'}`,
+                  background: pageSize === s ? '#2c2848' : 'transparent',
+                  color: pageSize === s ? '#a89cee' : '#75798c',
+                  border: `1px solid ${pageSize === s ? '#968ae040' : '#3f424d'}`,
                   borderRadius: 6, padding: '3px 10px', cursor: 'pointer', fontSize: 12, fontWeight: 600,
                 }}
               >
@@ -255,14 +255,14 @@ export function AuditLog() {
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#64748b' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#75798c' }}>
             <span>{from}–{to} of {total.toLocaleString()}</span>
             <button
               onClick={() => setPage((p) => Math.max(0, p - 1))}
               disabled={page === 0}
               style={{
-                background: 'transparent', border: '1px solid #334155',
-                color: page === 0 ? '#334155' : '#94a3b8', borderRadius: 6,
+                background: 'transparent', border: '1px solid #3f424d',
+                color: page === 0 ? '#3f424d' : '#9397ab', borderRadius: 6,
                 padding: '3px 8px', cursor: page === 0 ? 'default' : 'pointer',
                 display: 'flex', alignItems: 'center',
               }}
@@ -274,8 +274,8 @@ export function AuditLog() {
               onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
               disabled={page >= pageCount - 1}
               style={{
-                background: 'transparent', border: '1px solid #334155',
-                color: page >= pageCount - 1 ? '#334155' : '#94a3b8', borderRadius: 6,
+                background: 'transparent', border: '1px solid #3f424d',
+                color: page >= pageCount - 1 ? '#3f424d' : '#9397ab', borderRadius: 6,
                 padding: '3px 8px', cursor: page >= pageCount - 1 ? 'default' : 'pointer',
                 display: 'flex', alignItems: 'center',
               }}
