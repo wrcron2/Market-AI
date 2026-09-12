@@ -1,0 +1,12 @@
+services:
+  mac-control:
+    build: .
+    container_name: mac-control
+    ports:
+      - "8100:8100"
+    environment:
+      AGENT_HOST: host.docker.internal
+      AGENT_PORT: "9999"
+    volumes:
+      - ./.agent-token:/run/agent-token:ro
+    restart: unless-stopped

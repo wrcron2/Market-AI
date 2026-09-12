@@ -46,3 +46,15 @@ infra/versions/switch-request
 # graphify — regeneratable knowledge graph build output (run /graphify to rebuild)
 graphify-out/
 e2e/node_modules/
+
+# Local artifacts & tool runtime state (never commit)
+.playwright-mcp/
+/*.png
+e2e/*.png
+logs/brain_heartbeat.json
+mac-control/.agent-token
+mac-control/agent/agent.log
+mac-control/agent/agent.pid
+mac-control/agent/scan_cache.json
+mac-control/agent/scan_raw.txt
+mac-audit-dashboard/index.html

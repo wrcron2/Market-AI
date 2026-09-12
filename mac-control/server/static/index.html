@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac Control</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⌘</text></svg>">
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --border:#2a3038; --fg:#e6e9ee; --dim:#9aa3ad;
+          --amber:#f0b429; --green:#3fb950; --red:#f85149; --blue:#58a6ff; --purple:#bc8cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system, "SF Pro Text", Helvetica, Arial, sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:22px 20px 60px; }
+  header { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+  h1 { font-size:21px; margin:0; }
+  .sub { color:var(--dim); font-size:12.5px; }
+  .dot { width:9px; height:9px; border-radius:50%; display:inline-block; margin-right:5px; }
+  .dot.ok { background:var(--green); } .dot.bad { background:var(--red); }
+  nav { display:flex; gap:6px; margin:14px 0 20px; }
+  nav button { background:var(--card); color:var(--dim); border:1px solid var(--border);
+    border-radius:9px; padding:8px 18px; font-size:14px; cursor:pointer; font-weight:600; }
+  nav button.on { background:#1f2630; color:var(--fg); border-color:var(--blue); }
+  .tab { display:none; } .tab.on { display:block; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-bottom:20px; }
+  .stat { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:13px 15px; }
+  .stat .v { font-size:20px; font-weight:700; margin-top:2px; font-variant-numeric:tabular-nums; }
+  .stat .l { color:var(--dim); font-size:11.5px; text-transform:uppercase; letter-spacing:.06em; }
+  .stat .s { color:var(--dim); font-size:11.5px; }
+  .bad { color:var(--red); } .warn { color:var(--amber); } .ok { color:var(--green); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:20px; }
+  h2 { font-size:13px; margin:0 0 14px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; }
+  .gauge { height:26px; background:#0a0d12; border-radius:7px; overflow:hidden; display:flex; margin:6px 0 4px; }
+  .gauge div { height:100%; }
+  .legend { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:12px; color:var(--dim); margin-top:6px; }
+  .legend .dot { border-radius:3px; width:10px; height:10px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { padding:6px 9px; border-bottom:1px solid var(--border); text-align:left; }
+  th { color:var(--dim); font-weight:600; font-size:11.5px; text-transform:uppercase; }
+  td.p { font-family:ui-monospace,Menlo,monospace; font-size:11.5px; color:#c8d0d9;
+         max-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  td.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .btn { background:#1f2630; color:var(--fg); border:1px solid var(--border); border-radius:8px;
+         padding:5px 12px; font-size:12px; cursor:pointer; font-weight:600; }
+  .btn:hover { border-color:var(--blue); }
+  .btn.danger { color:#ffb4ae; border-color:#5a2c28; } .btn.danger:hover { border-color:var(--red); }
+  .btn:disabled { opacity:.45; cursor:default; }
+  .agrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(255px,1fr)); gap:12px; }
+  .acard { background:#10151c; border:1px solid var(--border); border-radius:10px; padding:14px; }
+  .acard h3 { margin:0 0 3px; font-size:13.5px; }
+  .acard .d { color:var(--dim); font-size:11.5px; margin-bottom:10px; min-height:32px; }
+  .acard .btn { width:100%; padding:8px; font-size:13px; }
+  #treemap { width:100%; height:520px; display:block; cursor:pointer; }
+  .tm-label { pointer-events:none; fill:#fff; font-size:12px; font-weight:600; text-shadow:0 1px 3px rgba(0,0,0,.7); }
+  .tm-sub { pointer-events:none; fill:rgba(255,255,255,.85); font-size:11px; text-shadow:0 1px 3px rgba(0,0,0,.7); }
+  #breadcrumb { margin-bottom:10px; font-size:13px; }
+  #breadcrumb a { color:var(--blue); cursor:pointer; text-decoration:none; }
+  #toast { position:fixed; right:18px; bottom:18px; display:flex; flex-direction:column; gap:8px; z-index:50; }
+  .toast { background:#1c232d; border:1px solid var(--border); border-left:4px solid var(--green);
+           border-radius:8px; padding:10px 14px; font-size:13px; max-width:420px;
+           box-shadow:0 6px 20px rgba(0,0,0,.5); white-space:pre-wrap; word-break:break-word; }
+  .toast.err { border-left-color:var(--red); }
+  #tip { position:fixed; pointer-events:none; background:#1c232d; border:1px solid var(--border);
+         border-radius:8px; padding:8px 10px; font-size:12.5px; display:none; z-index:60;
+         box-shadow:0 6px 20px rgba(0,0,0,.5); max-width:420px; }
+  #tip .pp { color:var(--dim); font-family:ui-monospace,Menlo,monospace; font-size:11px; word-break:break-all; }
+  .spin { display:inline-block; animation:sp 1s linear infinite; } @keyframes sp { to { transform:rotate(360deg);} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Mac Control</h1>
+    <span class="sub" id="hd"></span>
+    <span class="sub" style="margin-left:auto"><span class="dot bad" id="agentDot"></span><span id="agentTxt">agent…</span></span>
+  </header>
+  <nav>
+    <button data-tab="overview" class="on">Overview</button>
+    <button data-tab="disk">Disk</button>
+    <button data-tab="actions">Actions</button>
+  </nav>
+
+  <!-- ======================= OVERVIEW ======================= -->
+  <section class="tab on" id="tab-overview">
+    <div class="cards" id="statCards"></div>
+    <div class="card">
+      <h2>Memory composition (live)</h2>
+      <div class="gauge" id="memGauge"></div>
+      <div class="legend" id="memLegend"></div>
+    </div>
+    <div class="card">
+      <h2>Top processes — quit or force-kill your own</h2>
+      <table><thead><tr><th>Process</th><th>App</th><th style="text-align:right">RAM</th><th style="text-align:right">CPU</th><th>Up</th><th></th></tr></thead>
+      <tbody id="procRows"></tbody></table>
+    </div>
+  </section>
+
+  <!-- ========================= DISK ========================= -->
+  <section class="tab" id="tab-disk">
+    <div class="card">
+      <h2>Block map — click to zoom <span id="scanAge" style="float:right;text-transform:none"></span>
+        <button class="btn" id="rescanBtn" style="float:right;margin-right:10px">Rescan disk</button></h2>
+      <div id="breadcrumb"></div>
+      <svg id="treemap"></svg>
+    </div>
+    <div class="card">
+      <h2>Top-level locations</h2>
+      <div class="gauge" id="stack"></div>
+      <div class="legend" id="stackLegend"></div>
+    </div>
+    <div class="card">
+      <h2>Largest files (&gt; 500 MB)</h2>
+      <table><thead><tr><th>File</th><th style="text-align:right">Size</th></tr></thead><tbody id="bigfiles"></tbody></table>
+    </div>
+    <div class="card">
+      <h2>Reinstallable dependency folders</h2>
+      <table><thead><tr><th>Folder</th><th>Type</th><th style="text-align:right">Size</th></tr></thead><tbody id="deps"></tbody></table>
+    </div>
+  </section>
+
+  <!-- ======================== ACTIONS ======================== -->
+  <section class="tab" id="tab-actions">
+    <h2 style="margin-bottom:12px">Memory relief</h2>
+    <div class="agrid" id="memActions"></div>
+    <h2 style="margin:22px 0 12px">Docker</h2>
+    <div class="agrid" id="dockerActions"></div>
+    <h2 style="margin:22px 0 12px">Maintenance</h2>
+    <div class="agrid" id="maintActions"></div>
+    <h2 style="margin:22px 0 12px">Power <span style="color:var(--red);text-transform:none">(double-confirm)</span></h2>
+    <div class="agrid" id="powerActions"></div>
+  </section>
+</div>
+<div id="tip"></div>
+<div id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const KB=1024, MB=1048576;
+const human = kb => kb>=MB ? (kb/MB).toFixed(1)+" GB" : kb>=KB ? Math.round(kb/KB)+" MB" : kb+" KB";
+const PALETTE = ["#58a6ff","#f0b429","#3fb950","#f85149","#bc8cff","#39c5cf","#ff9f43","#ff6b9d","#7ee787","#d2a8ff","#ffa657","#79c0ff","#56d4dd","#e3b341"];
+const colorOf = i => PALETTE[i % PALETTE.length];
+const tip = $("tip");
+function showTip(e, name, path, size){
+  tip.innerHTML = `<b>${name}</b> — ${human(size)}<div class="pp">${path||""}</div>`;
+  tip.style.display="block";
+  tip.style.left = Math.min(e.clientX+14, innerWidth-300)+"px";
+  tip.style.top = (e.clientY+14)+"px";
+}
+addEventListener("mousemove", e => { if(tip.style.display==="block" && !e.target.closest("rect")) tip.style.display="none"; });
+
+// ---- tabs ----
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x===b));
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.id === "tab-"+b.dataset.tab));
+  if (b.dataset.tab === "disk" && !diskLoaded) loadScan();
+});
+
+// ---- api ----
+async function api(path, opts){
+  const r = await fetch(path, opts);
+  return r.json();
+}
+function toast(msg, err){
+  const t = document.createElement("div");
+  t.className = "toast" + (err ? " err" : "");
+  t.textContent = msg;
+  $("toast").appendChild(t);
+  setTimeout(() => t.remove(), 7000);
+}
+async function action(name, arg, confirmText){
+  if (confirmText && !confirm(confirmText)) return;
+  if (confirmText === "POWER") { if (!confirm("LAST CHANCE — really?")) return; }
+  const r = await api("/api/action", {method:"POST", body: JSON.stringify({action:name, arg:arg||{}})});
+  if (r.error) toast(r.error, true);
+  else toast(r.message, !r.ok);
+  setTimeout(refreshLive, 1500);
+}
+
+// ---- live stats ----
+function memBar(segs, el, legendEl){
+  const total = segs.reduce((s,x)=>s+x[1],0) || 1;
+  $(el).innerHTML = segs.map(([n,v,c],i) =>
+    `<div style="width:${(100*v/total).toFixed(2)}%;background:${c}" title="${n}"></div>`).join("");
+  $(legendEl).innerHTML = segs.filter(x=>x[1]>0.05).map(([n,v,c]) =>
+    `<span><span class="dot" style="background:${c}"></span>${n} ${v.toFixed(1)} GB</span>`).join("");
+}
+async function refreshLive(){
+  let s;
+  try { s = await api("/api/stats"); } catch(e){ return; }
+  if (s.error){ $("agentDot").className="dot bad"; $("agentTxt").textContent="agent unreachable"; return; }
+  $("agentDot").className="dot ok"; $("agentTxt").textContent="agent live";
+  $("hd").textContent = `${s.hostname} · up ${s.uptime||"?"} · load ${s.load?s.load.map(x=>x.toFixed(1)).join(" "):"?"}`;
+  const memUsed = s.mem.app_gb + s.mem.wired_gb + s.mem.compressed_gb;
+  const swapPct = s.swap && s.swap.total_gb ? s.swap.used_gb/s.swap.total_gb : 0;
+  const cards = [
+    ["RAM in use", memUsed.toFixed(1)+" / "+s.ram_total_gb+" GB", s.mem.free_gb<1?"warn":"ok", `free ${s.mem.free_gb.toFixed(1)} GB (cache counts as free)`],
+    ["Swap", s.swap ? s.swap.used_gb+" GB" : "?", swapPct>0.5?"bad":swapPct>0.15?"warn":"ok", s.swap?`of ${s.swap.total_gb} GB`:""],
+    ["CPU", s.cpu ? (s.cpu.user+s.cpu.sys).toFixed(0)+"%" : "?", (s.cpu&&s.cpu.idle<25)?"warn":"ok", s.cpu?`idle ${s.cpu.idle.toFixed(0)}%`:""],
+    ["Battery", s.battery_pct!=null ? s.battery_pct+"%" : "—", "ok", s.charging?"charging":"on battery"],
+    ["Disk", s.disk ? s.disk.used_gb+" GB" : "?", "ok", s.disk?`${s.disk.avail_gb} GB free of ${s.disk.total_gb} GB`:""],
+  ];
+  $("statCards").innerHTML = cards.map(([l,v,c,sub]) =>
+    `<div class="stat"><div class="l">${l}</div><div class="v ${c}">${v}</div><div class="s">${sub}</div></div>`).join("");
+  memBar([
+    ["Apps", s.mem.app_gb, "#58a6ff"], ["Wired", s.mem.wired_gb, "#f85149"],
+    ["Compressed", s.mem.compressed_gb, "#f0b429"], ["Cache (reclaimable)", s.mem.cache_gb, "#3fb950"],
+    ["Free", s.mem.free_gb, "#2a3038"]], "memGauge", "memLegend");
+}
+async function refreshProcs(){
+  let d;
+  try { d = await api("/api/processes"); } catch(e){ return; }
+  if (!d.processes) return;
+  $("procRows").innerHTML = d.processes.map(p => `
+    <tr>
+      <td class="p" title="${p.name} (pid ${p.pid})">${p.name}</td>
+      <td style="color:var(--dim)">${p.app||""}</td>
+      <td class="num">${p.rss}</td>
+      <td class="num">${p.cpu.toFixed(0)}%</td>
+      <td style="color:var(--dim)">${p.etime}</td>
+      <td class="num">${p.own ?
+        (p.app ? `<button class="btn" onclick="action('quit_app',{name:'${p.app.replace(/'/g,"")}}','Quit ${p.app}?')">Quit</button> ` : "") +
+        `<button class="btn danger" onclick="action('kill_pid',{pid:${p.pid},sig:15},'Terminate ${p.name} (pid ${p.pid})?')">Kill</button>
+         <button class="btn danger" onclick="action('kill_pid',{pid:${p.pid},sig:9},'FORCE-KILL ${p.name} (pid ${p.pid})? Unsaved work will be lost.')">Force</button>`
+        : `<span style="color:var(--dim);font-size:11px">system</span>`}</td>
+    </tr>`).join("");
+}
+
+// ---- disk tab ----
+let diskLoaded = false, zoomNode = null, zoomPath = [];
+const NS = "http://www.w3.org/2000/svg";
+const svg = $("treemap");
+function squarify(children, x, y, w, h){
+  const total = children.reduce((s,c)=>s+c.size,0)||1, scale = w*h/total, A = c => c.size*scale;
+  const rects=[]; let row=[], cx=x, cy=y, cw=w, ch=h;
+  const worst=(r,len)=>{ const s=r.reduce((a,c)=>a+A(c),0);
+    const mx=Math.max(...r.map(c=>A(c))), mn=Math.min(...r.map(c=>A(c)));
+    return Math.max(len*len*mx/(s*s), s*s/(len*len*mn)); };
+  const layout=r=>{ const s=r.reduce((a,c)=>a+A(c),0);
+    if(cw>=ch){ const rw=s/ch; let ry=cy;
+      for(const c of r){ const rh=A(c)/rw; rects.push({c,x:cx,y:ry,w:rw,h:rh}); ry+=rh; } cx+=rw; cw-=rw;
+    } else { const rh=s/cw; let rx=cx;
+      for(const c of r){ const rw=A(c)/rh; rects.push({c,x:rx,y:cy,w:rw,h:rh}); rx+=rw; } cy+=rh; ch-=rh; } };
+  for(const c of children){ const len=Math.min(cw,ch);
+    if(!row.length || worst([...row,c],len) <= worst(row,len)) row.push(c);
+    else { layout(row); row=[c]; } }
+  if(row.length) layout(row);
+  return rects;
+}
+function renderTreemap(){
+  if(!zoomNode) return;
+  const W = svg.clientWidth||1140, Hh = 520;
+  svg.setAttribute("viewBox",`0 0 ${W} ${Hh}`); svg.innerHTML="";
+  $("breadcrumb").innerHTML = zoomPath.map((n,i) =>
+    i===zoomPath.length-1 ? `<b>${n.name}</b> — ${human(n.size)}`
+    : `<a data-i="${i}">${n.name}</a> / `).join("");
+  document.querySelectorAll("#breadcrumb a").forEach(a =>
+    a.onclick=()=>{ zoomPath=zoomPath.slice(0,+a.dataset.i+1); zoomNode=zoomPath.at(-1); renderTreemap(); });
+  const kids=(zoomNode.children||[]).filter(c=>c.size>zoomNode.size*0.002);
+  const other=zoomNode.size-kids.reduce((s,c)=>s+c.size,0);
+  if(other>zoomNode.size*0.02) kids.push({name:"(everything else)",path:zoomNode.path,size:other,leaf:true});
+  squarify(kids,0,0,W,Hh).forEach(({c,x,y,w,h},i)=>{
+    const g=document.createElementNS(NS,"g"), r=document.createElementNS(NS,"rect");
+    r.setAttribute("x",x+1); r.setAttribute("y",y+1);
+    r.setAttribute("width",Math.max(0,w-2)); r.setAttribute("height",Math.max(0,h-2));
+    r.setAttribute("rx",6); r.setAttribute("fill",c.leaf?"#3a4149":colorOf(i)); r.setAttribute("fill-opacity",.85);
+    r.onmousemove=e=>showTip(e,c.name,c.path,c.size);
+    if(!c.leaf && c.children) r.onclick=()=>{ zoomNode=c; zoomPath.push(c); renderTreemap(); };
+    g.appendChild(r);
+    if(w>70 && h>30){
+      const t=document.createElementNS(NS,"text");
+      t.setAttribute("x",x+8); t.setAttribute("y",y+18); t.setAttribute("class","tm-label");
+      t.textContent = c.name.length>w/7.5 ? c.name.slice(0,Math.floor(w/7.5))+"…" : c.name;
+      const s2=document.createElementNS(NS,"text");
+      s2.setAttribute("x",x+8); s2.setAttribute("y",y+34); s2.setAttribute("class","tm-sub");
+      s2.textContent=human(c.size);
+      g.appendChild(t); g.appendChild(s2);
+    }
+    svg.appendChild(g);
+  });
+}
+addEventListener("resize", renderTreemap);
+const mid = p => p.length>90 ? p.slice(0,45)+" … "+p.slice(-42) : p;
+async function loadScan(){
+  const d = await api("/api/scan");
+  if (d.status === "empty"){ $("breadcrumb").innerHTML = "No scan yet — press <b>Rescan disk</b>."; return; }
+  if (!d.tree){ $("breadcrumb").textContent = d.error || "scan error"; return; }
+  diskLoaded = true;
+  zoomNode = d.tree; zoomPath = [d.tree];
+  renderTreemap();
+  const ageMin = Math.max(0, Math.round((Date.now()/1000 - d.generated)/60));
+  $("scanAge").textContent = `scanned ${ageMin<1?"just now":ageMin+" min ago"}`;
+  const total = d.stacked.reduce((s,c)=>s+c.size,0)||1;
+  $("stack").innerHTML = d.stacked.map((c,i)=>`<div style="width:${(100*c.size/total).toFixed(2)}%;background:${colorOf(i)}" title="${c.name} — ${human(c.size)}"></div>`).join("");
+  $("stackLegend").innerHTML = d.stacked.slice(0,12).map((c,i)=>`<span><span class="dot" style="background:${colorOf(i)}"></span>${c.name} — ${human(c.size)}</span>`).join("");
+  $("bigfiles").innerHTML = d.big_files.map(f=>`<tr><td class="p" title="${f.path}">${mid(f.path)}</td><td class="num">${f.human}</td></tr>`).join("");
+  $("deps").innerHTML = d.deps.map(f=>`<tr><td class="p" title="${f.path}">${mid(f.path)}</td><td style="color:var(--dim)">${f.kind}</td><td class="num">${f.human}</td></tr>`).join("");
+}
+$("rescanBtn").onclick = async () => {
+  $("rescanBtn").disabled = true; $("rescanBtn").innerHTML = '<span class="spin">◌</span> scanning…';
+  await action("rescan");
+  const iv = setInterval(async () => {
+    const d = await api("/api/scan");
+    if (d.scan_status && d.scan_status.state !== "running"){
+      clearInterval(iv);
+      $("rescanBtn").disabled = false; $("rescanBtn").textContent = "Rescan disk";
+      loadScan();
+    }
+  }, 5000);
+};
+
+// ---- actions tab ----
+const ACARDS = [
+  ["memActions", "Quit Ollama", "Frees ~4.6 GB RAM when the local model server is idle-loaded.", "Quit Ollama", () => action("quit_app",{name:"Ollama"},"Quit Ollama?")],
+  ["memActions", "Restart Finder", "Fixes a stuck Finder / desktop icons. Instant and safe.", "Restart Finder", () => action("restart_finder")],
+  ["memActions", "Restart Dock", "Fixes a frozen Dock or menu bar glitches. Instant and safe.", "Restart Dock", () => action("restart_dock")],
+  ["dockerActions", "Start Docker", "Launches Docker Desktop (your unless-stopped containers come back).", "Start", () => action("docker",{sub:"start"})],
+  ["dockerActions", "Quit Docker", "Stops Docker Desktop and ALL local containers, incl. market-ai-*. Frees ~1 GB.", "Quit Docker", () => action("docker",{sub:"quit"},"Quit Docker Desktop? All local containers stop.")],
+  ["dockerActions", "Prune Docker", "docker system prune -a — deletes ALL unused images (up to ~21 GB on your disk).", "Prune images", () => action("docker",{sub:"prune"},"Delete ALL unused Docker images?")],
+  ["maintActions", "Empty Trash", "Permanently deletes everything in ~/.Trash.", "Empty Trash", () => action("empty_trash",{},"Empty the Trash? This cannot be undone.")],
+  ["maintActions", "Clean npm cache", "npm cache clean --force — frees ~4.7 GB, re-downloaded on demand.", "Clean", () => action("npm_clean")],
+  ["maintActions", "Rescan disk", "Re-runs the full du/find scan (several minutes) and refreshes the Disk tab.", "Rescan", () => { document.querySelector('[data-tab=disk]').click(); $("rescanBtn").click(); }],
+  ["powerActions", "Lock screen", "Locks the screen immediately.", "Lock", () => action("lock")],
+  ["powerActions", "Sleep", "Puts the Mac to sleep now.", "Sleep", () => action("sleep",{},"Sleep now?")],
+  ["powerActions", "Restart Mac", "macOS restart via System Events (apps with unsaved work may block it).", "Restart…", () => action("reboot",{},"POWER"), true],
+  ["powerActions", "Shut down", "Full shutdown via System Events.", "Shut down…", () => action("shutdown",{},"POWER"), true],
+];
+for (const [grp, title, desc, btn, fn, danger] of ACARDS){
+  const el = document.createElement("div");
+  el.className = "acard";
+  el.innerHTML = `<h3>${title}</h3><div class="d">${desc}</div>`;
+  const b = document.createElement("button");
+  b.className = "btn" + (danger ? " danger" : "");
+  b.textContent = btn; b.onclick = fn;
+  el.appendChild(b);
+  $(grp).appendChild(el);
+}
+
+// ---- boot ----
+refreshLive(); refreshProcs();
+setInterval(refreshLive, 5000);
+setInterval(refreshProcs, 8000);
+</script>
+</body>
+</html>

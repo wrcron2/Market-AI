@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Mac Audit Dashboard</title>
+<style>
+  :root { --bg:#0d1117; --card:#161b22; --border:#2a3038; --fg:#e6e9ee; --dim:#9aa3ad;
+          --amber:#f0b429; --green:#3fb950; --red:#f85149; --blue:#58a6ff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system, "SF Pro Text", Helvetica, Arial, sans-serif; }
+  .wrap { max-width:1180px; margin:0 auto; padding:28px 20px 60px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  h2 { font-size:15px; margin:0 0 14px; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; }
+  .sub { color:var(--dim); margin-bottom:22px; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; margin-bottom:26px; }
+  .stat { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+  .stat .v { font-size:22px; font-weight:700; margin-top:2px; }
+  .stat .l { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.06em; }
+  .stat.bad .v { color:var(--red); } .stat.warn .v { color:var(--amber); } .stat.ok .v { color:var(--green); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:18px; margin-bottom:22px; }
+  #breadcrumb { margin-bottom:10px; font-size:13px; }
+  #breadcrumb a { color:var(--blue); cursor:pointer; text-decoration:none; }
+  #breadcrumb a:hover { text-decoration:underline; }
+  #treemap { width:100%; height:520px; display:block; cursor:pointer; }
+  .tm-label { pointer-events:none; fill:#fff; font-size:12px; font-weight:600;
+              text-shadow:0 1px 3px rgba(0,0,0,.7); }
+  .tm-sub { pointer-events:none; fill:rgba(255,255,255,.85); font-size:11px; text-shadow:0 1px 3px rgba(0,0,0,.7); }
+  .bar-row { display:flex; align-items:center; gap:10px; margin:5px 0; }
+  .bar-row .n { width:230px; text-align:right; color:var(--dim); font-size:12.5px;
+                white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar-row .t { flex:1; background:#0a0d12; border-radius:6px; height:20px; overflow:hidden; }
+  .bar-row .f { height:100%; border-radius:6px; }
+  .bar-row .v { width:80px; font-size:12.5px; font-variant-numeric:tabular-nums; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  td, th { padding:7px 10px; border-bottom:1px solid var(--border); text-align:left; }
+  th { color:var(--dim); font-weight:600; font-size:12px; text-transform:uppercase; }
+  td.p { font-family:ui-monospace,Menlo,monospace; font-size:12px; color:#c8d0d9;
+         max-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  td.s { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .plan { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:14px; }
+  .pcol h3 { margin:0 0 10px; font-size:14px; }
+  .pcol ul { margin:0; padding:0; list-style:none; }
+  .pcol li { display:flex; justify-content:space-between; gap:10px; padding:8px 0;
+             border-bottom:1px dashed var(--border); font-size:13px; }
+  .pcol li:last-child { border-bottom:none; }
+  .pcol .imp { color:var(--amber); white-space:nowrap; font-weight:600; font-size:12.5px; }
+  .stack { display:flex; height:34px; border-radius:8px; overflow:hidden; margin-bottom:10px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 16px; font-size:12.5px; }
+  .legend span { display:flex; align-items:center; gap:6px; color:var(--dim); }
+  .dot { width:10px; height:10px; border-radius:3px; display:inline-block; }
+  #tip { position:fixed; pointer-events:none; background:#1c232d; border:1px solid var(--border);
+         border-radius:8px; padding:8px 10px; font-size:12.5px; display:none; z-index:9;
+         box-shadow:0 6px 20px rgba(0,0,0,.5); max-width:420px; }
+  #tip .p { color:var(--dim); font-family:ui-monospace,Menlo,monospace; font-size:11px; word-break:break-all; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Mac Storage &amp; Memory Audit</h1>
+  <div class="sub" id="gen"></div>
+  <div class="cards" id="headline"></div>
+
+  <div class="card">
+    <h2>Cleanup plan — computed from this scan</h2>
+    <div class="plan" id="plan"></div>
+  </div>
+
+  <div class="card">
+    <h2>Disk block map — click a block to zoom, click path to go back</h2>
+    <div id="breadcrumb"></div>
+    <svg id="treemap"></svg>
+  </div>
+
+  <div class="card">
+    <h2>Storage by top-level location</h2>
+    <div class="stack" id="stack"></div>
+    <div class="legend" id="stackLegend"></div>
+  </div>
+
+  <div class="card">
+    <h2>Memory right now — RAM by app (aggregated)</h2>
+    <div id="membars"></div>
+  </div>
+
+  <div class="card">
+    <h2>Largest files on disk (&gt; 500 MB)</h2>
+    <table><thead><tr><th>File</th><th style="text-align:right">Size</th></tr></thead>
+    <tbody id="bigfiles"></tbody></table>
+  </div>
+
+  <div class="card">
+    <h2>Reinstallable dependency folders (safe to delete)</h2>
+    <table><thead><tr><th>Folder</th><th>Type</th><th style="text-align:right">Size</th></tr></thead>
+    <tbody id="deps"></tbody></table>
+  </div>
+</div>
+<div id="tip"></div>
+
+<script>
+const DATA = __DATA__;
+const KB = 1024, MB = 1048576;
+const human = kb => kb >= MB ? (kb/MB).toFixed(1)+" GB" : kb >= KB ? Math.round(kb/KB)+" MB" : kb+" KB";
+const PALETTE = ["#58a6ff","#f0b429","#3fb950","#f85149","#bc8cff","#39c5cf","#ff9f43","#ff6b9d","#7ee787","#d2a8ff","#ffa657","#79c0ff","#56d4dd","#e3b341"];
+const colorOf = i => PALETTE[i % PALETTE.length];
+const tip = document.getElementById("tip");
+function showTip(e, name, path, size){
+  tip.innerHTML = `<b>${name}</b> — ${human(size)}<div class="p">${path}</div>`;
+  tip.style.display = "block";
+  tip.style.left = Math.min(e.clientX+14, innerWidth-300)+"px";
+  tip.style.top = (e.clientY+14)+"px";
+}
+addEventListener("mousemove", e => { if(tip.style.display==="block" && !e.target.closest("rect")) tip.style.display="none"; });
+
+document.getElementById("gen").textContent =
+  "Generated " + new Date().toLocaleString() + " · uptime " + DATA.headline.uptime;
+
+// ---- headline cards ----
+const H = DATA.headline;
+const cards = [
+  ["RAM used", H.ram_used_gb + " / 16 GB", "bad"],
+  ["Swap used", H.swap_used_gb + " GB", H.swap_used_gb > 8 ? "bad" : "warn"],
+  ["Uptime", H.uptime, "warn"],
+  ["Disk used", H.disk_used + " (" + H.disk_pct + "%)", "ok"],
+  ["Disk free", H.disk_avail, "ok"],
+];
+document.getElementById("headline").innerHTML = cards.map(([l,v,c]) =>
+  `<div class="stat ${c}"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+
+// ---- plan ----
+const planCols = [["ram_now","Free RAM right now", "var(--red)"],
+                  ["delete","Delete safely (disk)", "var(--amber)"],
+                  ["cloud","Move to cloud / re-downloadable", "var(--blue)"]];
+document.getElementById("plan").innerHTML = planCols.map(([k,t,c]) =>
+  `<div class="pcol"><h3 style="color:${c}">${t}</h3><ul>` +
+  DATA.plan[k].map(r => `<li><span>${r.action}</span><span class="imp">${r.impact}</span></li>`).join("") +
+  `</ul></div>`).join("");
+
+// ---- treemap (squarified, zoomable) ----
+const svg = document.getElementById("treemap");
+const NS = "http://www.w3.org/2000/svg";
+let zoomNode = DATA.tree, zoomPath = [DATA.tree];
+
+function squarify(children, x, y, w, h){
+  const total = children.reduce((s,c)=>s+c.size,0) || 1;
+  const scale = w*h/total, A = c => c.size*scale;
+  const rects = []; let row = [], cx=x, cy=y, cw=w, ch=h;
+  const worst = (r,len) => { const s=r.reduce((a,c)=>a+A(c),0);
+    const mx=Math.max(...r.map(c=>A(c))), mn=Math.min(...r.map(c=>A(c)));
+    return Math.max(len*len*mx/(s*s), s*s/(len*len*mn)); };
+  const layout = r => { const s=r.reduce((a,c)=>a+A(c),0);
+    if (cw >= ch){ const rw=s/ch; let ry=cy;
+      for(const c of r){ const rh=A(c)/rw; rects.push({c,x:cx,y:ry,w:rw,h:rh}); ry+=rh; }
+      cx+=rw; cw-=rw;
+    } else { const rh=s/cw; let rx=cx;
+      for(const c of r){ const rw=A(c)/rh; rects.push({c,x:rx,y:cy,w:rw,h:rh}); rx+=rw; }
+      cy+=rh; ch-=rh; } };
+  for (const c of children){
+    const len = Math.min(cw,ch);
+    if (!row.length || worst([...row,c],len) <= worst(row,len)) row.push(c);
+    else { layout(row); row=[c]; }
+  }
+  if (row.length) layout(row);
+  return rects;
+}
+
+function renderTreemap(){
+  const W = svg.clientWidth || 1140, Hh = 520;
+  svg.setAttribute("viewBox", `0 0 ${W} ${Hh}`);
+  svg.innerHTML = "";
+  document.getElementById("breadcrumb").innerHTML = zoomPath.map((n,i) =>
+    i === zoomPath.length-1 ? `<b>${n.name}</b> — ${human(n.size)}`
+    : `<a data-i="${i}">${n.name}</a> / `).join("");
+  document.querySelectorAll("#breadcrumb a").forEach(a =>
+    a.onclick = () => { zoomPath = zoomPath.slice(0, +a.dataset.i+1); zoomNode = zoomPath.at(-1); renderTreemap(); });
+
+  const kids = (zoomNode.children||[]).filter(c => c.size > zoomNode.size*0.002);
+  const other = zoomNode.size - kids.reduce((s,c)=>s+c.size,0);
+  if (other > zoomNode.size*0.02) kids.push({name:"(everything else)", path:zoomNode.path, size:other, leaf:true});
+  const rects = squarify(kids, 0, 0, W, Hh);
+  rects.forEach(({c,x,y,w,h},i) => {
+    const g = document.createElementNS(NS,"g");
+    const r = document.createElementNS(NS,"rect");
+    const col = c.leaf ? "#3a4149" : colorOf(i);
+    r.setAttribute("x",x+1); r.setAttribute("y",y+1);
+    r.setAttribute("width",Math.max(0,w-2)); r.setAttribute("height",Math.max(0,h-2));
+    r.setAttribute("rx",6); r.setAttribute("fill",col); r.setAttribute("fill-opacity",.85);
+    r.onmousemove = e => showTip(e, c.name, c.path, c.size);
+    if (!c.leaf && c.children) r.onclick = () => { zoomNode = c; zoomPath.push(c); renderTreemap(); };
+    g.appendChild(r);
+    if (w > 70 && h > 30){
+      const t = document.createElementNS(NS,"text");
+      t.setAttribute("x",x+8); t.setAttribute("y",y+18); t.setAttribute("class","tm-label");
+      t.textContent = c.name.length > w/7.5 ? c.name.slice(0, Math.floor(w/7.5))+"…" : c.name;
+      const s = document.createElementNS(NS,"text");
+      s.setAttribute("x",x+8); s.setAttribute("y",y+34); s.setAttribute("class","tm-sub");
+      s.textContent = human(c.size);
+      g.appendChild(t); g.appendChild(s);
+    }
+    svg.appendChild(g);
+  });
+}
+addEventListener("resize", renderTreemap);
+renderTreemap();
+
+// ---- stacked bar ----
+const total = DATA.stacked.reduce((s,c)=>s+c.size,0) || 1;
+document.getElementById("stack").innerHTML = DATA.stacked.map((c,i) =>
+  `<div title="${c.name} — ${human(c.size)}" style="width:${(100*c.size/total).toFixed(2)}%;background:${colorOf(i)}"></div>`).join("");
+document.getElementById("stackLegend").innerHTML = DATA.stacked.slice(0,12).map((c,i) =>
+  `<span><span class="dot" style="background:${colorOf(i)}"></span>${c.name} — ${human(c.size)}</span>`).join("");
+
+// ---- memory bars ----
+const maxMem = Math.max(...DATA.mem.map(m=>m.size));
+document.getElementById("membars").innerHTML = DATA.mem.map((m,i) =>
+  `<div class="bar-row"><div class="n" title="${m.name}">${m.name}</div>
+   <div class="t"><div class="f" style="width:${(100*m.size/maxMem).toFixed(1)}%;background:${i===0?"var(--red)":"var(--amber)"}"></div></div>
+   <div class="v">${m.human}</div></div>`).join("");
+
+// ---- tables ----
+const mid = p => p.length > 90 ? p.slice(0,45)+" … "+p.slice(-42) : p;
+document.getElementById("bigfiles").innerHTML = DATA.big_files.map(f =>
+  `<tr><td class="p" title="${f.path}">${mid(f.path)}</td><td class="s">${f.human}</td></tr>`).join("");
+document.getElementById("deps").innerHTML = DATA.deps.map(f =>
+  `<tr><td class="p" title="${f.path}">${mid(f.path)}</td><td style="color:var(--dim)">${f.kind}</td><td class="s">${f.human}</td></tr>`).join("");
+</script>
+</body>
+</html>
