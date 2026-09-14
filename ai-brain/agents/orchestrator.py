@@ -31,6 +31,7 @@ from .risk_agent import RiskAgent
 from .router import Complexity, LLMRouter
 from .signal_agent import CandidateSignal, SignalAgent
 from .telemetry import emit_activity
+from .knowledge_gate import DIRECTION_WORD, fetch_knowledge, reasoning_section
 
 log = structlog.get_logger(__name__)
 
@@ -43,6 +44,7 @@ class AgentState(TypedDict, total=False):
     signal: CandidateSignal | None
     debate_result: Any | None       # DebateResult
     risk_result: Any | None         # RiskAssessment
+    knowledge_result: Any | None    # kimi-learner knowledge-gate verdict
     submitted: bool
     executed: bool                  # True if Alpaca order was placed
     error: str
@@ -206,6 +208,30 @@ class Orchestrator:
                        f"approved · qty {risk.adjusted_quantity:.0f} · confidence {risk.final_confidence:.2f} · risk {risk.risk_score:.2f}")
         return {**state, "risk_result": risk}
 
+    def _node_knowledge(self, state: AgentState) -> AgentState:
+        """Node 3.5: check the approved signal against kimi-learner knowledge.
+
+        Advisory only — attaches the learner's stance to the staged order's
+        reasoning and the activity feed. Never blocks, never executes, and
+        degrades to "unavailable" if the learner endpoint is down.
+        """
+        signal = state["signal"]
+        debate = state["debate_result"]
+        if not all([signal, debate]):
+            return {**state, "knowledge_result": None}
+        direction = DIRECTION_WORD.get(debate.consensus_direction, "up")
+        k = fetch_knowledge(signal.symbol, direction)
+        stance = k.get("stance", "unavailable")
+        cal = k.get("calibration", {}) or {}
+        self._emit(
+            signal.symbol,
+            "knowledge",
+            "ok" if stance != "unavailable" else "error",
+            f"learner stance: {stance} · {len(k.get('openPredictions', []))} "
+            f"open bet(s) · hit rate {cal.get('hitRatePct')}",
+        )
+        return {**state, "knowledge_result": k}
+
     def _node_submit(self, state: AgentState) -> AgentState:
         """Node 4: Submit the approved signal to the Go backend via gRPC."""
         signal = state["signal"]
@@ -223,6 +249,9 @@ class Orchestrator:
             f"[Judge] {debate.judge_reasoning}\n\n"
             f"[Risk] {risk.risk_notes}"
         )
+        knowledge = state.get("knowledge_result")
+        if knowledge:
+            full_reasoning += "\n\n" + reasoning_section(knowledge)
 
         model_tag = self.router.model_tag(Complexity.LOW)
 
@@ -444,11 +473,12 @@ class Orchestrator:
     def _build_graph(self) -> Any:
         g = StateGraph(AgentState)
 
-        g.add_node("generate", self._node_generate)
-        g.add_node("debate",   self._node_debate)
-        g.add_node("risk",     self._node_risk)
-        g.add_node("submit",   self._node_submit)
-        g.add_node("execute",  self._node_execute)
+        g.add_node("generate",  self._node_generate)
+        g.add_node("debate",    self._node_debate)
+        g.add_node("risk",      self._node_risk)
+        g.add_node("knowledge", self._node_knowledge)
+        g.add_node("submit",    self._node_submit)
+        g.add_node("execute",   self._node_execute)
 
         g.set_entry_point("generate")
 
@@ -458,9 +488,10 @@ class Orchestrator:
         })
         g.add_edge("debate", "risk")
         g.add_conditional_edges("risk", self._route_after_risk, {
-            "submit": "submit",
+            "submit": "knowledge",
             END: END,
         })
+        g.add_edge("knowledge", "submit")
         g.add_edge("submit",  "execute")
         g.add_edge("execute", END)
 
