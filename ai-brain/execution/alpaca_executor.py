@@ -3,7 +3,14 @@ alpaca_executor.py — Alpaca Paper Trading Client
 =================================================
 All order execution, position queries, and account reads go through here.
 
-Safety gate: raises RuntimeError at __init__ if PAPER_TRADING != "true".
+Safety gates:
+  - raises RuntimeError at __init__ if PAPER_TRADING != "true";
+  - operating-mode boundary (execution.operating_mode): place_order and
+    close_position raise LearningModeError BEFORE any network request unless
+    MARKET_AI_OPERATING_MODE=paper with PAPER_TRADING=true and the exact paper
+    broker URL. The policy configuration is captured at client construction;
+    later environment edits cannot re-authorize a client. Read-only methods
+    are never gated.
 Every call is logged via structlog for the audit trail.
 """
 from __future__ import annotations
@@ -14,6 +21,8 @@ from typing import Any
 
 import httpx
 import structlog
+
+from execution.operating_mode import require_mutation_allowed
 
 log = structlog.get_logger(__name__)
 
@@ -56,6 +65,19 @@ class AlpacaExecutor:
             headers=headers,
             timeout=15,
         )
+        # ── Mutation policy, captured at construction ─────────────────────────
+        # The guards in place_order/close_position evaluate THIS snapshot of the
+        # policy configuration — operating mode, the explicit PAPER_TRADING
+        # value, and the actual raw base URL this client was built with — never
+        # a fresh os.environ read. Editing MARKET_AI_OPERATING_MODE,
+        # PAPER_TRADING, or ALPACA_BASE_URL after construction must neither
+        # re-authorize a client built in learning mode or against a live host,
+        # nor de-authorize one built under valid paper configuration.
+        self._mutation_env = {
+            "MARKET_AI_OPERATING_MODE": os.getenv("MARKET_AI_OPERATING_MODE", ""),
+            "PAPER_TRADING":            os.getenv("PAPER_TRADING", ""),
+            "ALPACA_BASE_URL":          base_url,
+        }
         log.info("alpaca_executor.init", base_url=base_url)
 
     # ── Account ────────────────────────────────────────────────────────────────
@@ -173,7 +195,14 @@ class AlpacaExecutor:
         """
         Place an order on the Alpaca paper account and return the order object.
         BUY/COVER → side=buy.  SELL/SHORT → side=sell.
+
+        Learning-only gate: raises LearningModeError before ANY network
+        request (the cash guard itself may issue GETs for price/cash) unless
+        this client was constructed in explicit, valid paper configuration
+        (policy is captured at construction — later env edits have no effect).
         """
+        require_mutation_allowed(self._mutation_env)
+
         allowed, reason = self.check_cash_guard(direction, quantity, limit_price, symbol)
         if not allowed:
             log.warning("alpaca.cash_guard_blocked", signal_id=signal_id,
@@ -255,7 +284,14 @@ class AlpacaExecutor:
         """
         Close the full position for symbol at market. Called by stop-loss,
         take-profit, and position monitor SELL decisions.
+
+        Learning-only gate: raises LearningModeError before ANY network
+        request unless this client was constructed in explicit, valid paper
+        configuration (policy is captured at construction — later env edits
+        have no effect).
         """
+        require_mutation_allowed(self._mutation_env)
+
         resp = self._client.delete(f"/v2/positions/{symbol}")
         if resp.status_code == 204:
             log.info("alpaca.position_not_found_on_close", symbol=symbol)

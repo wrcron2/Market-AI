@@ -3,6 +3,13 @@ main.py — MarketFlow AI Brain Entry Point
 ==========================================
 Starts the agent pipeline and feeds it real market data.
 
+Operating mode (MARKET_AI_OPERATING_MODE, immutable for the process lifetime):
+  - learning (DEFAULT — every value except exactly "paper" fails closed here):
+      the brain never imports the Orchestrator, never touches the broker, and
+      runs no scanning/monitor/rotation/outcome loops. It only stays alive and
+      writes a heartbeat marked mode=learning with decisions/execution off.
+  - paper: the legacy paper-trading pipeline below. There is no live mode.
+
 Trading modes (set via the React dashboard toggle):
   - Yahoo mode (default): Uses yfinance data. Simulated fills happen in the
     Go backend AFTER the trader clicks Green Light — not here in the brain.
@@ -147,15 +154,52 @@ BACKEND_MODE_URL     = f"http://{os.getenv('BRAIN_HOST', '127.0.0.1')}:{os.geten
 HEARTBEAT_PATH = os.getenv("HEARTBEAT_PATH", "/app/logs/brain_heartbeat.json")
 
 
-def _write_heartbeat(window: str, bar: int, mode: str) -> None:
+def _write_heartbeat(window: str, bar: int, mode: str, extra: dict[str, Any] | None = None) -> None:
     """Best-effort liveness marker — never let heartbeat IO kill the loop."""
     try:
         os.makedirs(os.path.dirname(HEARTBEAT_PATH), exist_ok=True)
+        payload: dict[str, Any] = {"ts": int(time.time()), "window": window,
+                                   "bar": bar, "mode": mode}
+        if extra:
+            payload.update(extra)
         with open(HEARTBEAT_PATH, "w") as f:
-            json.dump({"ts": int(time.time()), "window": window,
-                       "bar": bar, "mode": mode}, f)
+            json.dump(payload, f)
     except Exception as exc:
         log.warning("brain.heartbeat_write_failed", error=str(exc))
+
+
+def _run_learning_mode(should_stop: Any = None, heartbeat_seconds: float = 60.0) -> None:
+    """
+    Learning-mode branch: the whole behavior of the brain while
+    MARKET_AI_OPERATING_MODE is anything but exactly "paper".
+
+    Stays alive and periodically writes the liveness heartbeat explicitly
+    marked mode=learning with decisions_enabled=false and
+    execution_enabled=false. This branch makes no market-data, model, backend,
+    or broker calls, and never imports the Orchestrator, feed, monitor, or
+    executor modules. The heartbeat is liveness only — it does not simulate
+    business activity.
+
+    `should_stop` is an injectable predicate (checked each tick) so tests can
+    stop the loop instead of running it forever; production passes None.
+    """
+    log.info(
+        "marketflow.brain.learning_mode",
+        note="MARKET_AI_OPERATING_MODE is not exactly 'paper' — trading decisions, "
+             "order execution, market-data feeds, position monitoring, rotation and "
+             "outcome checking are DISABLED; heartbeat-only liveness until restart",
+    )
+    tick = 0
+    while True:
+        if should_stop is not None and should_stop():
+            break
+        tick += 1
+        _write_heartbeat(
+            "learning", tick, "learning",
+            extra={"decisions_enabled": False, "execution_enabled": False},
+        )
+        time.sleep(heartbeat_seconds)
+    log.info("marketflow.brain.learning_mode_stopped", ticks=tick)
 
 
 def _get_current_mode() -> str:
@@ -283,6 +327,18 @@ def _process(
 
 
 def main() -> None:
+    # ── Operating mode gate (Block 1: learning-only) ─────────────────────────
+    # Resolved BEFORE any Orchestrator import/instantiation and before every
+    # scanning / position-monitor / rotation / outcome-decision path. Only the
+    # exact value "paper" permits the legacy pipeline; missing/empty/unknown
+    # values fail closed to learning. No Alpaca account verification (a broker
+    # call) happens in learning mode.
+    from execution.operating_mode import PAPER, current_mode
+
+    if current_mode() != PAPER:
+        _run_learning_mode()
+        return
+
     from agents.orchestrator import Orchestrator
     from data_feed.symbol_universe import get_symbols
     from data_feed.yahoo_feed import YahooFinanceFeed

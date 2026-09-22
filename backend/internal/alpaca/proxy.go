@@ -13,7 +13,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/marketflow/backend/internal/operatingmode"
 )
+
+// brokerTimeout bounds every Alpaca HTTP call so a hung broker connection can
+// never stall a dashboard request or an execution path indefinitely.
+const brokerTimeout = 15 * time.Second
 
 // Handler proxies dashboard requests to the Alpaca paper API.
 type Handler struct {
@@ -21,6 +27,9 @@ type Handler struct {
 	secretKey string
 	baseURL   string
 	client    *http.Client
+	// mode is captured once at construction and is immutable for the process
+	// lifetime; it gates every broker mutation (PlaceOrder, ClosePosition).
+	mode operatingmode.Mode
 }
 
 // NewHandler reads credentials from environment variables.
@@ -29,8 +38,16 @@ func NewHandler() *Handler {
 		apiKey:    os.Getenv("ALPACA_API_KEY"),
 		secretKey: os.Getenv("ALPACA_SECRET_KEY"),
 		baseURL:   getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
-		client:    &http.Client{},
+		client:    &http.Client{Timeout: brokerTimeout},
+		mode:      operatingmode.FromEnv(),
 	}
+}
+
+// checkMutation enforces the learning-only broker boundary. It MUST run before
+// any network request of a mutation flow — including preliminary GETs — so
+// that learning mode produces zero outbound calls on a mutation attempt.
+func (h *Handler) checkMutation() error {
+	return h.mode.CheckBrokerMutation(os.Getenv("PAPER_TRADING"), h.baseURL)
 }
 
 // SettledCash returns the account's settled cash balance, floored at zero.
@@ -133,7 +150,12 @@ type OrderResult struct {
 
 // PlaceOrder submits a market order to Alpaca paper trading.
 // direction must be "BUY" or "SELL". qty is rounded to nearest integer.
+// Learning-only gate: rejected before any network request unless the process
+// runs in explicit, valid paper configuration.
 func (h *Handler) PlaceOrder(symbol, direction string, qty float64) (*OrderResult, error) {
+	if err := h.checkMutation(); err != nil {
+		return nil, err
+	}
 	if h.apiKey == "" || h.secretKey == "" {
 		return nil, fmt.Errorf("alpaca credentials not configured")
 	}
@@ -219,7 +241,7 @@ func (h *Handler) FetchFillPrice(orderID, symbol string) float64 {
 	}
 
 	// Fallback: fetch latest trade price from Alpaca data API
-	dataClient := &http.Client{}
+	dataClient := &http.Client{Timeout: brokerTimeout}
 	dataURL := fmt.Sprintf("https://data.alpaca.markets/v2/stocks/%s/trades/latest?feed=iex", symbol)
 	req, err := http.NewRequest(http.MethodGet, dataURL, nil)
 	if err != nil {
@@ -252,7 +274,13 @@ type CloseResult struct {
 }
 
 // ClosePosition liquidates the full open position for a symbol at market.
+// Learning-only gate: rejected before ANY network request — including the
+// preliminary position GET — unless the process runs in explicit, valid paper
+// configuration.
 func (h *Handler) ClosePosition(symbol string) (*CloseResult, error) {
+	if err := h.checkMutation(); err != nil {
+		return nil, err
+	}
 	if h.apiKey == "" || h.secretKey == "" {
 		return nil, fmt.Errorf("alpaca credentials not configured")
 	}

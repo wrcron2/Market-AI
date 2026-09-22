@@ -27,6 +27,7 @@ import (
 	grpcbridge "github.com/marketflow/backend/internal/grpc"
 	"github.com/marketflow/backend/internal/mode"
 	"github.com/marketflow/backend/internal/notify"
+	"github.com/marketflow/backend/internal/operatingmode"
 	"github.com/marketflow/backend/internal/pipeline"
 	"github.com/marketflow/backend/internal/statusreports"
 	"github.com/marketflow/backend/internal/versions"
@@ -43,6 +44,19 @@ func main() {
 		log.Fatalf("failed to init logger: %v", err)
 	}
 	defer logger.Sync()
+
+	// ─── Operating mode (learning-only gate) ─────────────────────────────────
+	// Read once from MARKET_AI_OPERATING_MODE; immutable for the process
+	// lifetime. Only the exact value "paper" permits decision/execution
+	// behavior — missing/empty/unknown values fail closed to learning, and no
+	// API call can toggle it.
+	opMode := operatingmode.FromEnv()
+	logger.Info("operating mode initialised",
+		zap.String("operating_mode", string(opMode)),
+		zap.Bool("decisions_enabled", opMode.DecisionsEnabled()),
+		zap.Bool("execution_enabled", opMode.ExecutionEnabled()),
+		zap.String("note", "only MARKET_AI_OPERATING_MODE=paper enables trading decisions and broker mutations; all other values fail closed to learning"),
+	)
 
 	// ─── Database ─────────────────────────────────────────────────────────────
 	dsn := getEnv("DB_DSN", "./infra/db/marketflow.db")
@@ -91,6 +105,10 @@ func main() {
 	llmProvider := "local"
 
 	mux := http.NewServeMux()
+
+	// ─── Operating mode status (server-owned, immutable — no setter exists) ──
+	mux.HandleFunc("/api/operating-mode", opMode.StatusHandler)
+
 	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -1002,59 +1020,70 @@ func main() {
 	// Broadcasts the change so the dashboard toggle updates in real time.
 	// Manual overrides via the dashboard always take precedence until the next
 	// open/close boundary.
-	go func() {
-		loc, err := time.LoadLocation("America/New_York")
-		if err != nil {
-			logger.Error("market-watcher: cannot load ET timezone", zap.Error(err))
-			return
-		}
-		var prevState *bool // nil = unknown, force first broadcast
-		for {
-			now := time.Now().In(loc)
-			wd := now.Weekday()
-			isWeekday := wd >= time.Monday && wd <= time.Friday
-			open := time.Date(now.Year(), now.Month(), now.Day(), 9, 25, 0, 0, loc)
-			close := time.Date(now.Year(), now.Month(), now.Day(), 16, 5, 0, 0, loc)
-			shouldEnable := isWeekday && now.After(open) && now.Before(close)
-
-			if prevState == nil || *prevState != shouldEnable {
-				autoExMu.Lock()
-				autoExEnabled = shouldEnable
-				autoExMu.Unlock()
-				hub.Broadcast("auto_execute_changed", map[string]any{"enabled": shouldEnable})
-				if shouldEnable {
-					logger.Info("market-watcher: market open — auto-execute ON")
-					// Expire pre-market watchlist signals — they'll be re-generated with fresh data
-					go func() {
-						expired, err := database.ExpirePendingSignals("market-watcher", "Market open — pre-market watchlist cleared, fresh signals incoming")
-						if err == nil && expired > 0 {
-							logger.Info("market-watcher: cleared pre-market watchlist signals", zap.Int("count", expired))
-							hub.Broadcast("signals_expired", map[string]any{"count": expired, "reason": "market_open_revalidation"})
-						}
-					}()
-				} else {
-					logger.Info("market-watcher: market closed — auto-execute OFF")
-					// Auto-expire all PENDING signals at market close — never carry stale signals to next day
-					go func() {
-						expired, err := database.ExpirePendingSignals("market-watcher", "Market closed — stale signals expired")
-						if err != nil {
-							logger.Error("market-watcher: failed to expire pending signals", zap.Error(err))
-						} else if expired > 0 {
-							logger.Info("market-watcher: expired stale PENDING signals", zap.Int("count", expired))
-							hub.Broadcast("signals_expired", map[string]any{"count": expired})
-						}
-					}()
-				}
-				prevState = &shouldEnable
+	// Learning mode: the watcher is a decision-producing background task and is
+	// never started; auto-execute stays off and its POST toggle is rejected by
+	// the operating-mode middleware.
+	if !opMode.DecisionsEnabled() {
+		logger.Info("market-watcher disabled: operating mode is learning — auto-execute will not be started")
+	}
+	if opMode.DecisionsEnabled() {
+		go func() {
+			loc, err := time.LoadLocation("America/New_York")
+			if err != nil {
+				logger.Error("market-watcher: cannot load ET timezone", zap.Error(err))
+				return
 			}
-			time.Sleep(30 * time.Second)
-		}
-	}()
+			var prevState *bool // nil = unknown, force first broadcast
+			for {
+				now := time.Now().In(loc)
+				wd := now.Weekday()
+				isWeekday := wd >= time.Monday && wd <= time.Friday
+				open := time.Date(now.Year(), now.Month(), now.Day(), 9, 25, 0, 0, loc)
+				close := time.Date(now.Year(), now.Month(), now.Day(), 16, 5, 0, 0, loc)
+				shouldEnable := isWeekday && now.After(open) && now.Before(close)
+
+				if prevState == nil || *prevState != shouldEnable {
+					autoExMu.Lock()
+					autoExEnabled = shouldEnable
+					autoExMu.Unlock()
+					hub.Broadcast("auto_execute_changed", map[string]any{"enabled": shouldEnable})
+					if shouldEnable {
+						logger.Info("market-watcher: market open — auto-execute ON")
+						// Expire pre-market watchlist signals — they'll be re-generated with fresh data
+						go func() {
+							expired, err := database.ExpirePendingSignals("market-watcher", "Market open — pre-market watchlist cleared, fresh signals incoming")
+							if err == nil && expired > 0 {
+								logger.Info("market-watcher: cleared pre-market watchlist signals", zap.Int("count", expired))
+								hub.Broadcast("signals_expired", map[string]any{"count": expired, "reason": "market_open_revalidation"})
+							}
+						}()
+					} else {
+						logger.Info("market-watcher: market closed — auto-execute OFF")
+						// Auto-expire all PENDING signals at market close — never carry stale signals to next day
+						go func() {
+							expired, err := database.ExpirePendingSignals("market-watcher", "Market closed — stale signals expired")
+							if err != nil {
+								logger.Error("market-watcher: failed to expire pending signals", zap.Error(err))
+							} else if expired > 0 {
+								logger.Info("market-watcher: expired stale PENDING signals", zap.Int("count", expired))
+								hub.Broadcast("signals_expired", map[string]any{"count": expired})
+							}
+						}()
+					}
+					prevState = &shouldEnable
+				}
+				time.Sleep(30 * time.Second)
+			}
+		}()
+	}
 
 	httpPort := getEnv("GO_SERVER_PORT", "8080")
 	httpSrv := &http.Server{
-		Addr:         ":" + httpPort,
-		Handler:      corsMiddleware(mux),
+		Addr: ":" + httpPort,
+		// Learning mode: every non-GET/HEAD/OPTIONS request is rejected with
+		// 423 before reaching any business handler. In paper mode the
+		// middleware is a pass-through.
+		Handler:      corsMiddleware(opMode.Middleware(mux)),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 0,
 	}
@@ -1066,7 +1095,10 @@ func main() {
 		logger.Fatal("failed to listen on gRPC port", zap.Error(err))
 	}
 
-	grpcSrv := grpc.NewServer()
+	// Learning mode: a unary interceptor rejects every gRPC service call with
+	// FailedPrecondition before any service handler runs. In paper mode it is a
+	// pass-through.
+	grpcSrv := grpc.NewServer(grpc.UnaryInterceptor(opMode.UnaryServerInterceptor()))
 	signalSvc := grpcbridge.NewSignalServer(database, hub, logger)
 	proto.RegisterSignalServiceServer(grpcSrv, signalSvc)
 	proto.RegisterGreenLightServiceServer(grpcSrv, grpcbridge.NewGreenLightServer(database, hub, logger))
