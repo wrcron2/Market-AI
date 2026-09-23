@@ -74,6 +74,7 @@ class AlpacaExecutor:
         # re-authorize a client built in learning mode or against a live host,
         # nor de-authorize one built under valid paper configuration.
         self._mutation_env = {
+            "DECISION_AUTHORITY": os.getenv("DECISION_AUTHORITY", ""),
             "MARKET_AI_OPERATING_MODE": os.getenv("MARKET_AI_OPERATING_MODE", ""),
             "PAPER_TRADING":            os.getenv("PAPER_TRADING", ""),
             "ALPACA_BASE_URL":          base_url,

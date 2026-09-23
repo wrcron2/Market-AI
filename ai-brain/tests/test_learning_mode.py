@@ -169,6 +169,7 @@ def _make_executor(**env):
     broker boundary lets through (construction itself performs no network I/O).
     """
     base = {
+        "DECISION_AUTHORITY": "LEGACY",
         "MARKET_AI_OPERATING_MODE": "paper",
         "PAPER_TRADING": "true",
         "ALPACA_BASE_URL": operating_mode.PAPER_BROKER_BASE_URL,
@@ -234,11 +235,11 @@ def test_mutation_block_reason_matrix():
             assert operating_mode.mutation_block_reason() is not None, f"URL {url!r}"
 
     # The one explicitly valid configuration passes.
-    with patched_env(MARKET_AI_OPERATING_MODE="paper", PAPER_TRADING="true",
+    with patched_env(DECISION_AUTHORITY="LEGACY", MARKET_AI_OPERATING_MODE="paper", PAPER_TRADING="true",
                      ALPACA_BASE_URL=operating_mode.PAPER_BROKER_BASE_URL):
         assert operating_mode.mutation_block_reason() is None
     # Unset ALPACA_BASE_URL falls back to the paper default (executor does the same).
-    with patched_env(MARKET_AI_OPERATING_MODE="paper", PAPER_TRADING="true", ALPACA_BASE_URL=None):
+    with patched_env(DECISION_AUTHORITY="LEGACY", MARKET_AI_OPERATING_MODE="paper", PAPER_TRADING="true", ALPACA_BASE_URL=None):
         assert operating_mode.mutation_block_reason() is None
 
 
@@ -324,6 +325,7 @@ def test_learning_loop_logs_explicit_startup_message():
 # ── 3. Executor broker boundary (policy captured at construction) ────────────
 
 VALID_PAPER_ENV = {
+    "DECISION_AUTHORITY": "LEGACY",
     "MARKET_AI_OPERATING_MODE": "paper",
     "PAPER_TRADING": "true",
     "ALPACA_BASE_URL": operating_mode.PAPER_BROKER_BASE_URL,
@@ -424,6 +426,38 @@ def test_executor_valid_paper_config_still_allows_mutations():
     assert order["id"] == "order-1"
     assert result["id"] == "close-1"
     assert ex._client.requests == [("POST", "/v2/orders"), ("DELETE", "/v2/positions/AAPL")], ex._client.requests
+
+
+def test_kimi_authority_never_imports_legacy_brain_even_in_paper():
+    import builtins
+    main = _import_main()
+    original_import, original_loop = builtins.__import__, main._run_learning_mode
+    ran = []
+    def guarded_import(name, *args, **kwargs):
+        if name in ("agents.orchestrator", "agents.position_monitor", "execution.alpaca_executor"):
+            raise AssertionError("legacy module imported under KIMI/disabled authority")
+        return original_import(name, *args, **kwargs)
+    try:
+        builtins.__import__ = guarded_import
+        main._run_learning_mode = lambda **kw: ran.append(True)
+        for authority in ("KIMI", None, "invalid", "legacy"):
+            with patched_env(MARKET_AI_OPERATING_MODE="paper", DECISION_AUTHORITY=authority):
+                main.main()
+        assert len(ran) == 4
+    finally:
+        builtins.__import__, main._run_learning_mode = original_import, original_loop
+
+
+def test_kimi_legacy_executor_stays_blocked_after_authority_change():
+    ex = _make_executor(DECISION_AUTHORITY="KIMI")
+    with patched_env(DECISION_AUTHORITY="LEGACY"):
+        for mutation in (lambda: ex.place_order("AAPL", "SELL", 1), lambda: ex.close_position("AAPL")):
+            try:
+                mutation()
+                raise AssertionError("KIMI client used legacy executor")
+            except operating_mode.LearningModeError:
+                pass
+    assert ex._client.requests == []
 
 
 # ── Standalone runner (pytest is unavailable in this workspace) ───────────────

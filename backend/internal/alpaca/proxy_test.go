@@ -42,6 +42,7 @@ func jsonResponse(status int, body string) *http.Response {
 func newTestHandler(t *testing.T, mode, paperTrading, baseURL string) (*Handler, *countingTransport) {
 	t.Helper()
 	t.Setenv("MARKET_AI_OPERATING_MODE", mode)
+	t.Setenv("DECISION_AUTHORITY", "LEGACY")
 	t.Setenv("PAPER_TRADING", paperTrading)
 	t.Setenv("ALPACA_BASE_URL", baseURL)
 	t.Setenv("ALPACA_API_KEY", "test-key")
@@ -189,5 +190,24 @@ func TestHTTPClientHasBoundedTimeout(t *testing.T) {
 	}
 	if h.client.Timeout > 60*1e9 {
 		t.Errorf("Alpaca HTTP client timeout %v exceeds a sane bound", h.client.Timeout)
+	}
+}
+
+func TestLegacyClientCannotExecuteForKimiOrMissingAuthority(t *testing.T) {
+	for _, authority := range []string{"KIMI", "", "invalid"} {
+		_, ct := newTestHandler(t, "paper", "true", operatingmode.PaperBrokerBaseURL)
+		t.Setenv("DECISION_AUTHORITY", authority)
+		h := NewHandler()
+		h.client = &http.Client{Transport: ct}
+		t.Setenv("DECISION_AUTHORITY", "LEGACY")
+		if _, err := h.PlaceOrder("AAPL", "SELL", 1); err == nil {
+			t.Fatal("legacy client placed order")
+		}
+		if _, err := h.ClosePosition("AAPL"); err == nil {
+			t.Fatal("legacy client closed position")
+		}
+		if ct.calls.Load() != 0 {
+			t.Fatal("blocked client issued network requests")
+		}
 	}
 }

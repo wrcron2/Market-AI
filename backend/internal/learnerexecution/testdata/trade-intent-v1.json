@@ -1,0 +1,22 @@
+{
+  "version": "trade-intent-v1",
+  "decisionId": "12345678-1234-4234-8234-123456789abc",
+  "correlationId": "87654321-1234-4234-8234-123456789abc",
+  "ownerId": "1",
+  "accountId": "paper-account-1",
+  "environment": "paper",
+  "predictionId": 42,
+  "knowledge": {"snapshotId": "prediction-42", "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+  "symbol": "AAPL",
+  "action": "BUY",
+  "order": {"side": "buy", "qty": "0.01", "type": "limit", "limitPrice": "100.00", "timeInForce": "day"},
+  "decidedAt": "2026-09-23T14:00:00.000Z",
+  "expiresAt": "2026-09-23T14:01:00.000Z",
+  "observationId": "obs-1",
+  "marketDataAt": "2026-09-23T13:59:59.000Z",
+  "rationale": "Synthetic fixture, not an investment recommendation.",
+  "evidenceRefs": ["prediction:42"],
+  "conditions": {"entry": null, "exit": null, "invalidation": null},
+  "producer": {"agent": "kimi-learner", "model": "synthetic-test", "version": "decision-v1"},
+  "policyVersion": "paper-v1"
+}

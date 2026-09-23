@@ -69,6 +69,8 @@ def mutation_block_reason(environ: dict | None = None) -> str | None:
             f"learning_only: {ENV_VAR} is not exactly 'paper' — "
             "broker mutations are disabled in learning mode"
         )
+    if env.get("DECISION_AUTHORITY") != "LEGACY":
+        return "legacy_authority_disabled: legacy executor requires DECISION_AUTHORITY=LEGACY"
     if env.get("PAPER_TRADING", "").strip().lower() != "true":
         return "PAPER_TRADING=true is required for broker mutations"
     if env.get("ALPACA_BASE_URL", PAPER_BROKER_BASE_URL) != PAPER_BROKER_BASE_URL:

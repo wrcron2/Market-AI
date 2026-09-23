@@ -132,23 +132,23 @@ class TestLLMProviderEndpointE2E(unittest.TestCase):
         resp = self._get()
         self.assertEqual(resp.json()["provider"], "local")
 
-    def test_set_aws_and_read_back(self):
+    def test_disabled_aws_is_rejected_without_changing_provider(self):
+        self._set("local")
         resp = self._set("aws")
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["provider"], "aws")
+        self.assertEqual(resp.status_code, 403)
 
         resp = self._get()
-        self.assertEqual(resp.json()["provider"], "aws")
+        self.assertEqual(resp.json()["provider"], "local")
 
     def test_invalid_provider_rejected(self):
         resp = self._set("gcp")
         self.assertEqual(resp.status_code, 400)
 
-    def test_toggle_cycle_local_aws_local(self):
+    def test_rejected_paid_provider_keeps_local_usable(self):
         self._set("local")
         self.assertEqual(self._get().json()["provider"], "local")
-        self._set("aws")
-        self.assertEqual(self._get().json()["provider"], "aws")
+        self.assertEqual(self._set("aws").status_code, 403)
+        self.assertEqual(self._get().json()["provider"], "local")
         self._set("local")
         self.assertEqual(self._get().json()["provider"], "local")
 

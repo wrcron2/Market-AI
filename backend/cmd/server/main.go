@@ -23,8 +23,10 @@ import (
 	"github.com/marketflow/backend/internal/askai"
 	"github.com/marketflow/backend/internal/brainfeed"
 	"github.com/marketflow/backend/internal/db"
+	"github.com/marketflow/backend/internal/decisionauthority"
 	"github.com/marketflow/backend/internal/greenlight"
 	grpcbridge "github.com/marketflow/backend/internal/grpc"
+	"github.com/marketflow/backend/internal/learnerexecution"
 	"github.com/marketflow/backend/internal/mode"
 	"github.com/marketflow/backend/internal/notify"
 	"github.com/marketflow/backend/internal/operatingmode"
@@ -36,6 +38,59 @@ import (
 )
 
 func main() {
+	_ = godotenv.Load()
+	authority := decisionauthority.FromEnv()
+	if !authority.LegacyEnabled() {
+		// Select the dedicated path BEFORE database migrations, legacy handlers,
+		// strategy constructors, watchers, notifications or gRPC registration.
+		handler, closeRuntime := newDedicatedHandler(authority, operatingmode.FromEnv())
+		defer closeRuntime()
+		server := &http.Server{Addr: net.JoinHostPort(getEnv("GO_SERVER_HOST", "127.0.0.1"), getEnv("GO_SERVER_PORT", "8080")),
+			Handler:           handler,
+			ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 30 * time.Second}
+		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		done := make(chan error, 1)
+		go func() { done <- server.ListenAndServe() }()
+		select {
+		case err := <-done:
+			if err != nil && err != http.ErrServerClosed {
+				// Fatal exits skip defers; close resources explicitly first.
+				closeRuntime()
+				stop()
+				log.Fatal("dedicated server could not start")
+			}
+		case <-ctx.Done():
+			shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := server.Shutdown(shutdown); err != nil {
+				_ = server.Close()
+			}
+			cancel()
+			<-done
+		}
+		return
+	}
+	runLegacy()
+}
+
+func newDedicatedHandler(authority decisionauthority.Authority, mode operatingmode.Mode) (http.Handler, func()) {
+	var learner http.Handler
+	enabled := false
+	closeRuntime := func() {}
+	if authority.KimiEnabled() && mode == operatingmode.Paper {
+		runtime, err := learnerexecution.OpenRuntime(learnerexecution.RuntimeConfigFromEnv())
+		if err != nil {
+			log.Print("learner runtime unavailable; execution disabled")
+		} else {
+			learner = runtime.Handler
+			enabled = runtime.SubmissionEnabled
+			closeRuntime = func() { _ = runtime.Close() }
+		}
+	}
+	return decisionauthority.NewMux(authority, mode, learner, enabled), closeRuntime
+}
+
+func runLegacy() {
 	// Load .env (ignore error if not present — env vars may be set externally)
 	_ = godotenv.Load()
 
@@ -101,8 +156,6 @@ func main() {
 	autoExEnabled := false
 
 	// ─── LLM Provider (locked to "local" — AWS Bedrock disabled) ────────────
-	var llmProviderMu sync.RWMutex
-	llmProvider := "local"
 
 	mux := http.NewServeMux()
 
@@ -830,41 +883,10 @@ func main() {
 	})
 
 	// ─── LLM Provider toggle (AWS Bedrock ↔ local Ollama) ────────────────────
-	mux.HandleFunc("/api/llm-provider", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			llmProviderMu.RLock()
-			provider := llmProvider
-			llmProviderMu.RUnlock()
-			writeJSON(w, map[string]any{"provider": provider})
-
-		case http.MethodPost:
-			var req struct {
-				Provider string `json:"provider"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				http.Error(w, "invalid body", http.StatusBadRequest)
-				return
-			}
-			if req.Provider == "aws" {
-				http.Error(w, `AWS Bedrock is disabled — restore credentials in .env to re-enable`, http.StatusForbidden)
-				return
-			}
-			if req.Provider != "local" {
-				http.Error(w, `provider must be "local"`, http.StatusBadRequest)
-				return
-			}
-			llmProviderMu.Lock()
-			llmProvider = req.Provider
-			llmProviderMu.Unlock()
-			hub.Broadcast("llm_provider_changed", map[string]any{"provider": req.Provider})
-			logger.Info("llm provider changed", zap.String("provider", req.Provider))
-			writeJSON(w, map[string]any{"provider": req.Provider})
-
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
+	mux.Handle("/api/llm-provider", newLLMProviderHandler(func(provider string) {
+		hub.Broadcast("llm_provider_changed", map[string]any{"provider": provider})
+		logger.Info("llm provider changed", zap.String("provider", provider))
+	}))
 
 	// ─── Auto-Execute toggle ──────────────────────────────────────────────────
 	mux.HandleFunc("/api/auto-execute", func(w http.ResponseWriter, r *http.Request) {
@@ -1180,6 +1202,45 @@ func resolveProjectRoot(explicit string) string {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
+}
+
+// Isolated from startup so HTTP regression tests do not initialize trading
+// services. Behavior is unchanged: only local is selectable; AWS stays disabled.
+func newLLMProviderHandler(onChange func(string)) http.Handler {
+	var mu sync.RWMutex
+	provider := "local"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			mu.RLock()
+			value := provider
+			mu.RUnlock()
+			writeJSON(w, map[string]any{"provider": value})
+		case http.MethodPost:
+			var req struct {
+				Provider string `json:"provider"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+			if req.Provider == "aws" {
+				http.Error(w, `AWS Bedrock is disabled — restore credentials in .env to re-enable`, http.StatusForbidden)
+				return
+			}
+			if req.Provider != "local" {
+				http.Error(w, `provider must be "local"`, http.StatusBadRequest)
+				return
+			}
+			mu.Lock()
+			provider = req.Provider
+			mu.Unlock()
+			onChange(req.Provider)
+			writeJSON(w, map[string]any{"provider": req.Provider})
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 }
 
 // corsMiddleware adds CORS headers for the local React dev server.

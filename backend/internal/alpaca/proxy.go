@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/marketflow/backend/internal/decisionauthority"
 	"github.com/marketflow/backend/internal/operatingmode"
 )
 
@@ -29,7 +30,8 @@ type Handler struct {
 	client    *http.Client
 	// mode is captured once at construction and is immutable for the process
 	// lifetime; it gates every broker mutation (PlaceOrder, ClosePosition).
-	mode operatingmode.Mode
+	mode      operatingmode.Mode
+	authority decisionauthority.Authority
 }
 
 // NewHandler reads credentials from environment variables.
@@ -40,6 +42,7 @@ func NewHandler() *Handler {
 		baseURL:   getenv("ALPACA_BASE_URL", "https://paper-api.alpaca.markets"),
 		client:    &http.Client{Timeout: brokerTimeout},
 		mode:      operatingmode.FromEnv(),
+		authority: decisionauthority.FromEnv(),
 	}
 }
 
@@ -47,6 +50,9 @@ func NewHandler() *Handler {
 // any network request of a mutation flow — including preliminary GETs — so
 // that learning mode produces zero outbound calls on a mutation attempt.
 func (h *Handler) checkMutation() error {
+	if !h.authority.LegacyEnabled() {
+		return fmt.Errorf("legacy_authority_disabled: this broker client requires DECISION_AUTHORITY=LEGACY")
+	}
 	return h.mode.CheckBrokerMutation(os.Getenv("PAPER_TRADING"), h.baseURL)
 }
 

@@ -335,7 +335,7 @@ def main() -> None:
     # call) happens in learning mode.
     from execution.operating_mode import PAPER, current_mode
 
-    if current_mode() != PAPER:
+    if current_mode() != PAPER or os.getenv("DECISION_AUTHORITY") != "LEGACY":
         _run_learning_mode()
         return
 

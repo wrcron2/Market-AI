@@ -2,6 +2,14 @@
 
 Read this first. Repo also has `CLAUDE.md` (Claude-specificNotes); this file is the canonical agent guide and supersedes conflicting prose in the README when it comes to current wiring.
 
+## Decision authority (Phase 1 source; not deployment evidence)
+
+- Exact `DECISION_AUTHORITY=KIMI` selects only the authenticated learner execution server. Market must not choose or rewrite a trade. Legacy handlers, strategy/watchers and gRPC do not start on this path.
+- Missing/invalid authority is `DISABLED`, with health/configuration status only. Exact `LEGACY` explicitly selects the retained old runtime; it is never a fallback. Python starts economic work only with both `LEGACY` and paper operating mode.
+- Keep submissions disabled at handoff. Preserve the learner's MySQL records and separate execution SQLite journal. Disabling submissions must not discard unknown orders; reconcile them before any authority/account change.
+- Read [Kimi decision authority](docs/kimi-decision-authority.md) before testing, enabling or rolling back this path. Earlier stack/flow notes below describe **LEGACY**, not KIMI.
+- Do not start the normal Docker stack just to run tests. It can start saved trading services. Use the explicit fake transports, isolated test processes and offline Python fixture.
+
 ## Stack (3 services, 3 runtimes)
 
 - **ai-brain/** — Python 3.12 LangGraph multi-agent system. Entry: `ai-brain/main.py`. Polled loop, 5-min bar cycle, sleeps outside US market windows (ET).
@@ -33,9 +41,9 @@ make docker-up  /  make docker-down
 
 ## Tests
 
-- Python agents: `python -m pytest ai-brain/tests/ -v` (LLM is mocked; no network needed). Single: `python -m pytest ai-brain/tests/test_portfolio_limits.py -v`.
+- Python agents: `python -m pytest ai-brain/tests/ -v` (models mocked; five provider HTTP tests require the isolated backend fixture). Full offline runner: `tests/run_offline_suite.py` in the no-network test container described in the authority runbook. Single: `python -m pytest ai-brain/tests/test_portfolio_limits.py -v`.
 - LLM-provider toggle E2E (needs backend running): `./scripts/test_llm_provider_e2e.sh [http://localhost:8080]`.
-- No Go test suite yet.
+- Go: from `backend`, run `go test ./... -count=1`, `go test -race ./internal/learnerexecution`, and `go vet ./...`. Broker transports are fake; process tests use loopback only.
 - Backtest gate (Phase 3): `python3 -m backtest run --strategy all` from repo root — note the module path; results land in `backtest_results/`. Gate thresholds are hard-coded in `ai-brain/backtest/report.py` and enforced.
 - Trading System v2.4 validation track (offline, no network): `python -m pytest tests/ -v` from repo root — covers the §3 point-in-time universe time-travel test, the §4.1 shared-cost-model boundary tests, and the G1 gate (`tests/test_fortress_reproduces_item_zero.py`: the fortress must reproduce `item_zero_results.csv` within rounding). The fortress itself: `python -m fortress.run` → prints the pre-registered hurdles (`fortress/hurdles.yaml`) and writes `fortress_verdict_table.csv`. Sleeve parameter pins live in `sleeve_specs/` (zero open items); `preregistration_template.md` must be filed before any fortress run whose output will be acted on. `fortress/cost_model.py` is the single source of truth for friction — Item Zero, the fortress, and later live TCA share that one code path.
 - Ops layer (§6, **survives a G0 park**): `ops/` holds the DST-safe scheduler, corporate-actions daily job, W-8BEN monitor, Israeli semi-annual tax exports, and the §6.5 TCA friction monitor (`ops/tca_friction.py` — realized vs cost-model bps by sleeve, CRITICAL alert at >2 bps excess over any 20-trade window; the model side arrives as plain data priced by `fortress/cost_model.py`). It is deliberately standalone — `ops/` must never import `execution_lane/` or `fortress/` (or their §5.2 intent journal); it consumes plain dicts/CSVs and reports via `ops.alerts.AlertSink`. Enforced by `tests/test_ops_standalone_no_journal.py` (AST scan + blocked-import subprocess); simulated-failure coverage per §6 lives in `tests/test_ops_simulated_failures.py`, and the §6.5 cost-model-breach alert in `tests/test_tca_friction_alert.py`.

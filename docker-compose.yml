@@ -14,6 +14,7 @@ services:
     # paper here — learning must remain the out-of-the-box default.
     environment:
       MARKET_AI_OPERATING_MODE: "${MARKET_AI_OPERATING_MODE:-learning}"
+      DECISION_AUTHORITY: "${DECISION_AUTHORITY:-DISABLED}"
     volumes:
       - ./infra/db:/app/db               # persist SQLite on host
       - ./infra/versions:/app/versions   # version history + switch requests
@@ -44,6 +45,7 @@ services:
     # set to exactly "paper". In learning the brain writes a heartbeat only.
     environment:
       MARKET_AI_OPERATING_MODE: "${MARKET_AI_OPERATING_MODE:-learning}"
+      DECISION_AUTHORITY: "${DECISION_AUTHORITY:-DISABLED}"
     volumes:
       - ./logs:/app/logs             # heartbeat file for host watchdog
     # NOTE: Ollama must be running on the host at OLLAMA_HOST

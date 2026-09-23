@@ -1,5 +1,20 @@
 # Learning-Only Mode (Block 1)
 
+## Current authority layer (2026-09-23)
+
+The following Block 1 notes are historical and now apply to the **explicit
+LEGACY runtime only**. Missing/invalid `DECISION_AUTHORITY` selects `DISABLED`,
+which starts health/configuration endpoints only, not the old read endpoints,
+database reconciliation, gRPC or watcher. `KIMI` selects a separate signed
+learner service in paper mode, without the legacy brain. See
+[the authority runbook](kimi-decision-authority.md) for current configuration
+and rollback. No change here proves deployment or authorizes activation.
+
+Both Go and Python legacy broker mutations now additionally require the exact
+construction-time authority `LEGACY`. Paper operating mode alone is insufficient.
+The new KIMI path requires its own explicit submission enable, released kill
+switch, owner/account mapping, limits, fresh observations and paper-only broker.
+
 This source change defaults Market AI to **learning-only** operating mode.
 In that mode the decision and broker-mutation paths covered below are disabled;
 account, positions, and health reads remain available. This is not a wholly
