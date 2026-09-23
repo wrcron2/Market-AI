@@ -6,8 +6,8 @@ services:
       GO_SERVER_HOST: "0.0.0.0"
       DECISION_AUTHORITY: "DISABLED"
       MARKET_AI_OPERATING_MODE: "learning"
-      LEARNER_EXECUTION_ENABLED: "false"
-      LEARNER_KILL_SWITCH: "true"
+      KIMI_EXECUTION_ENABLED: "false"
+      KIMI_KILL_SWITCH: "true"
   brain:
     environment:
       DECISION_AUTHORITY: "DISABLED"
