@@ -1,0 +1,14 @@
+# Safe release profile: no economic decision source or order submission.
+# The listener is reachable inside Docker; host ports remain loopback-only.
+services:
+  backend:
+    environment:
+      GO_SERVER_HOST: "0.0.0.0"
+      DECISION_AUTHORITY: "DISABLED"
+      MARKET_AI_OPERATING_MODE: "learning"
+      LEARNER_EXECUTION_ENABLED: "false"
+      LEARNER_KILL_SWITCH: "true"
+  brain:
+    environment:
+      DECISION_AUTHORITY: "DISABLED"
+      MARKET_AI_OPERATING_MODE: "learning"
