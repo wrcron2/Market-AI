@@ -110,7 +110,7 @@ func (p SafetyPolicy) ownershipEvidenceCode(current BrokerSnapshot, e Exposure, 
 		if _, exists := positions[position.Symbol]; exists {
 			return "observation_incomplete"
 		}
-		qty, err := observedDecimal(position.Qty)
+		qty, err := signedPositionDecimal(position.Qty)
 		if err != nil {
 			return "external_account_drift"
 		}
@@ -124,7 +124,8 @@ func (p SafetyPolicy) ownershipEvidenceCode(current BrokerSnapshot, e Exposure, 
 			}
 		}
 		if baseline, reserved := external[position.Symbol]; reserved {
-			if owned.Sign() != 0 || !sameDecimal(position.Qty, baseline) {
+			expected, baselineErr := signedPositionDecimal(baseline)
+			if baselineErr != nil || owned.Sign() != 0 || qty.Cmp(expected) != 0 {
 				return "external_account_drift"
 			}
 		} else if owned.Cmp(qty) != 0 {
@@ -281,18 +282,18 @@ func (p SafetyPolicy) check(i Intent, reference, current BrokerSnapshot, e Expos
 		if _, exists := positions[position.Symbol]; exists {
 			return deny("observation_incomplete")
 		}
-		qty, err := observedDecimal(position.Qty)
+		qty, err := signedPositionDecimal(position.Qty)
 		if err != nil {
 			return deny("external_account_drift")
 		}
-		value, err := observedDecimal(position.MarketValue)
-		if err != nil || (qty.Sign() > 0 && value.Sign() <= 0) {
+		value, err := signedPositionDecimal(position.MarketValue)
+		if err != nil || qty.Sign() != value.Sign() {
 			return deny("observation_incomplete")
 		}
 		positions[position.Symbol] = qty
 		portfolioValue.Add(portfolioValue, value)
 		if _, reserved := external[position.Symbol]; reserved {
-			externalValue.Add(externalValue, value)
+			externalValue.Add(externalValue, new(big.Rat).Abs(value))
 			portfolioValue.Sub(portfolioValue, value)
 			continue
 		}

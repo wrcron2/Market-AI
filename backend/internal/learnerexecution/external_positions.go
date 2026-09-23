@@ -2,6 +2,7 @@ package learnerexecution
 
 import (
 	"errors"
+	"math/big"
 	"strings"
 )
 
@@ -21,7 +22,7 @@ func (p SafetyPolicy) externalPositions() (map[string]string, error) {
 		if !ok || !symbolPattern.MatchString(symbol) {
 			return nil, errors.New("external_positions_invalid")
 		}
-		if _, err := decimal(qty, qtyPattern); err != nil {
+		if _, err := decimal(strings.TrimPrefix(qty, "-"), qtyPattern); err != nil {
 			return nil, errors.New("external_positions_invalid")
 		}
 		if _, duplicate := positions[symbol]; duplicate {
@@ -30,4 +31,20 @@ func (p SafetyPolicy) externalPositions() (map[string]string, error) {
 		positions[symbol] = qty
 	}
 	return positions, nil
+}
+
+// Signed values are allowed only for observed external positions, never orders
+// or learner-owned quantities. Preserve the broker's direction exactly.
+func signedPositionDecimal(text string) (*big.Rat, error) {
+	n, err := observedDecimal(strings.TrimPrefix(text, "-"))
+	if err != nil {
+		return nil, err
+	}
+	if strings.HasPrefix(text, "-") {
+		if n.Sign() == 0 {
+			return nil, errors.New("invalid_broker_decimal")
+		}
+		n.Neg(n)
+	}
+	return n, nil
 }

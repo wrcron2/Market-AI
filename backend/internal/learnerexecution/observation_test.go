@@ -19,6 +19,20 @@ func observationResponses() map[string]string {
 	}
 }
 
+func TestExternalShortObservationReservesCoverCash(t *testing.T) {
+	responses := observationResponses()
+	responses["/v2/positions"] = `[{"symbol":"XLE","qty":"-112","market_value":"-50"}]`
+	broker, err := newPaperBroker(paperConfig(), paperTransportFunc(func(r *http.Request) (*http.Response, error) { return brokerResponse(200, responses[r.URL.Path]), nil }))
+	if err != nil {
+		t.Fatal(err)
+	}
+	broker.now = fixtureTime
+	o, err := broker.Observe(context.Background(), "AAPL")
+	if err != nil || o.BuyingPower != "50" || o.Positions[0].Qty != "-112" {
+		t.Fatalf("short position or cover cash lost: %+v %v", o, err)
+	}
+}
+
 func TestPaperObservationCannotOfferMarginAsSpendableCash(t *testing.T) {
 	for _, tc := range []struct{ cash, power, want string }{{"2", "100", "2"}, {"100", "2", "2"}, {"0", "100", "0"}} {
 		responses := observationResponses()

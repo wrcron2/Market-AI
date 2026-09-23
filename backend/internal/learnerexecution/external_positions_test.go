@@ -28,6 +28,26 @@ func TestExternalBaselineObservationIsNotLearnerOwnership(t *testing.T) {
 	}
 }
 
+func TestExternalShortBaselineIsReservedWithoutAttributingShortOwnership(t *testing.T) {
+	i, _ := DecodeIntent(fixtureBytes(t))
+	p := pilotPolicy()
+	p.ExternalPositions = "XLE=-112"
+	o := freshSnapshot()
+	o.Positions = []BrokerPosition{{Symbol: "XLE", Qty: "-112", MarketValue: "-1250"}}
+	d := p.check(i, o, o, emptyExposure(), fixtureTime())
+	if !d.Allowed || d.Measurements["portfolioNotionalBefore"] != "0" || d.Measurements["externalPortfolioNotional"] != "1250" {
+		t.Fatalf("external short: %+v", d)
+	}
+	p.ExternalPositions = ""
+	if d = p.check(i, o, o, emptyExposure(), fixtureTime()); d.Allowed {
+		t.Fatal("unrecorded short was accepted")
+	}
+	p.ExternalPositions = "XLE=-111"
+	if d = p.check(i, o, o, emptyExposure(), fixtureTime()); d.Allowed {
+		t.Fatal("short baseline drift was accepted")
+	}
+}
+
 // Catches the former exclusive-account check rejecting an unrelated AAPL buy,
 // or incorrectly charging a pre-existing holding to the learner's pilot budget.
 func TestExternalPositionBaselineAllowsUnrelatedLearnerTrade(t *testing.T) {
@@ -83,7 +103,7 @@ func TestExternalBaselineCannotMaskExistingLearnerOwnership(t *testing.T) {
 }
 
 func TestMalformedExternalBaselineCannotConfigureRuntime(t *testing.T) {
-	for _, raw := range []string{"XLE", "xle=1", "XLE=0", "XLE=-1", "XLE=NaN", "XLE=1,XLE=2", " XLE=1", "XLE=1,", "XLE=1=2"} {
+	for _, raw := range []string{"XLE", "xle=1", "XLE=0", "XLE=-0", "XLE=--1", "XLE=NaN", "XLE=1,XLE=2", " XLE=1", "XLE=1,", "XLE=1=2"} {
 		p := pilotPolicy()
 		p.ExternalPositions = raw
 		if p.configured() {

@@ -65,12 +65,6 @@ func (b *PaperBroker) Observe(ctx context.Context, symbol string) (BrokerSnapsho
 	if err != nil {
 		return out, errBrokerResponse
 	}
-	// The wire field is retained for compatibility; it exposes cash-limited
-	// spending capacity, never Alpaca's margin buying power.
-	if cash.Cmp(available) < 0 {
-		available = cash
-	}
-	power = exactDecimal(available)
 	clockValue, _, err := b.request(ctx, http.MethodGet, "/v2/clock", nil)
 	if err != nil {
 		return out, err
@@ -141,14 +135,29 @@ func (b *PaperBroker) Observe(ctx context.Context, symbol string) (BrokerSnapsho
 		if !ok {
 			return out, errBrokerResponse
 		}
-		if _, err := observedDecimal(qty); err != nil {
+		quantity, err := signedPositionDecimal(qty)
+		if err != nil {
 			return out, errBrokerResponse
 		}
-		if _, err := observedDecimal(marketValue); err != nil {
+		valueAmount, err := signedPositionDecimal(marketValue)
+		if err != nil || quantity.Sign() != valueAmount.Sign() {
 			return out, errBrokerResponse
 		}
 		owned = append(owned, BrokerPosition{Symbol: sym, Qty: qty, MarketValue: marketValue})
+		if quantity.Sign() < 0 {
+			cash.Add(cash, valueAmount)
+		}
 	}
+	// Reserve current cover value for external shorts; do not offer their sale
+	// proceeds or margin buying power as application cash. Ownership policy still
+	// rejects any short that is not an exact explicitly configured baseline.
+	if cash.Sign() < 0 {
+		cash.SetInt64(0)
+	}
+	if cash.Cmp(available) < 0 {
+		available = cash
+	}
+	power = exactDecimal(available)
 	ordersValue, _, err := b.request(ctx, http.MethodGet, "/v2/orders?status=open&limit=500&nested=false", nil)
 	if err != nil {
 		return out, err
