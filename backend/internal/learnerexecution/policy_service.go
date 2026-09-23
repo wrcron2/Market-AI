@@ -16,6 +16,9 @@ func NewExecutionService(store *Store, broker *PaperBroker, policy SafetyPolicy)
 	return newPolicyService(store, broker, policy)
 }
 func newPolicyService(store *Store, broker Broker, policy SafetyPolicy) (*Service, error) {
+	if _, err := policy.externalPositions(); err != nil {
+		return nil, err
+	}
 	if store == nil || broker == nil || policy.AccountID != store.accountID {
 		return nil, ErrScope
 	}
@@ -93,7 +96,14 @@ func (s *Service) Observe(ctx context.Context, symbol string) (BrokerSnapshot, e
 		o.OwnedQuantity = value(exposure.Owned)
 		o.PendingBuyNotional = value(exposure.PendingBuy)
 		o.PendingSellQuantity = value(exposure.PendingSell)
-		o.UnresolvedExecution = ownershipEvidenceCode(o, exposure, s.now()) != ""
+		policy := SafetyPolicy{}
+		if gate, ok := s.gate.(*policyGate); ok {
+			policy = gate.policy
+		}
+		external, parseErr := policy.externalPositions()
+		_, reserved := external[symbol]
+		o.ReservedSymbol = reserved
+		o.UnresolvedExecution = parseErr != nil || reserved || policy.ownershipEvidenceCode(o, exposure, s.now()) != ""
 		return nil
 	})
 	if err != nil {

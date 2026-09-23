@@ -8,15 +8,17 @@ import (
 // SafetyPolicy contains operator-set mechanical bounds, never model judgments.
 // Missing limits disable submission. Values are copied by the service factory.
 type SafetyPolicy struct {
-	Enabled      bool
-	KillSwitch   bool
-	AccountID    string
-	Version      string
-	MaxOrder     string
-	MaxPosition  string
-	MaxPortfolio string
-	MaxDaily     string
-	MaxAge       time.Duration
+	// Operator-recorded holdings excluded from this application's ownership.
+	ExternalPositions string
+	Enabled           bool
+	KillSwitch        bool
+	AccountID         string
+	Version           string
+	MaxOrder          string
+	MaxPosition       string
+	MaxPortfolio      string
+	MaxDaily          string
+	MaxAge            time.Duration
 }
 
 type BrokerPosition struct {
@@ -33,6 +35,7 @@ type BrokerSnapshot struct {
 	PendingBuyNotional  string           `json:"pendingBuyNotional"`
 	PendingSellQuantity string           `json:"pendingSellQuantity"`
 	UnresolvedExecution bool             `json:"unresolvedExecution"`
+	ReservedSymbol      bool             `json:"reservedSymbol"`
 	Source              string           `json:"source"`
 	SourceQuoteAt       string           `json:"sourceQuoteAt"`
 	ID                  string           `json:"id"`
@@ -85,7 +88,11 @@ func fresh(at, now time.Time, age time.Duration) bool {
 
 // Used for both mechanical admission and read-side ownership claims. A fresh
 // broker retrieval does not make historical journal attribution current.
-func ownershipEvidenceCode(current BrokerSnapshot, e Exposure, now time.Time) string {
+func (p SafetyPolicy) ownershipEvidenceCode(current BrokerSnapshot, e Exposure, now time.Time) string {
+	external, err := p.externalPositions()
+	if err != nil {
+		return "external_positions_invalid"
+	}
 	if !current.Complete || current.Positions == nil || current.OpenOrders == nil {
 		return "observation_incomplete"
 	}
@@ -116,7 +123,16 @@ func ownershipEvidenceCode(current BrokerSnapshot, e Exposure, now time.Time) st
 				return "exposure_unavailable"
 			}
 		}
-		if owned.Cmp(qty) != 0 {
+		if baseline, reserved := external[position.Symbol]; reserved {
+			if owned.Sign() != 0 || !sameDecimal(position.Qty, baseline) {
+				return "external_account_drift"
+			}
+		} else if owned.Cmp(qty) != 0 {
+			return "external_account_drift"
+		}
+	}
+	for symbol := range external {
+		if _, exists := positions[symbol]; !exists {
 			return "external_account_drift"
 		}
 	}
@@ -131,6 +147,9 @@ func ownershipEvidenceCode(current BrokerSnapshot, e Exposure, now time.Time) st
 	}
 	seen := map[string]bool{}
 	for _, order := range current.OpenOrders {
+		if _, reserved := external[order.Symbol]; reserved {
+			return "external_account_drift"
+		}
 		if seen[order.ClientOrderID] {
 			return "observation_incomplete"
 		}
@@ -154,6 +173,13 @@ func (p SafetyPolicy) check(i Intent, reference, current BrokerSnapshot, e Expos
 		d.measure(key, value)
 	}
 	deny := func(code string) SafetyDecision { d.ReasonCode = code; return d }
+	external, err := p.externalPositions()
+	if err != nil {
+		return deny("external_positions_invalid")
+	}
+	if _, reserved := external[i.Symbol]; reserved {
+		return deny("external_position_reserved")
+	}
 	if !p.Enabled {
 		return deny("execution_disabled")
 	}
@@ -247,6 +273,7 @@ func (p SafetyPolicy) check(i Intent, reference, current BrokerSnapshot, e Expos
 	positions := map[string]*big.Rat{}
 	positionValue := new(big.Rat)
 	portfolioValue := new(big.Rat)
+	externalValue := new(big.Rat)
 	for _, position := range current.Positions {
 		if !symbolPattern.MatchString(position.Symbol) {
 			return deny("observation_incomplete")
@@ -264,13 +291,19 @@ func (p SafetyPolicy) check(i Intent, reference, current BrokerSnapshot, e Expos
 		}
 		positions[position.Symbol] = qty
 		portfolioValue.Add(portfolioValue, value)
+		if _, reserved := external[position.Symbol]; reserved {
+			externalValue.Add(externalValue, value)
+			portfolioValue.Sub(portfolioValue, value)
+			continue
+		}
 		if position.Symbol == i.Symbol {
 			positionValue.Set(value)
 		}
 	}
 	d.measure("positionNotionalBefore", exactDecimal(positionValue))
 	d.measure("portfolioNotionalBefore", exactDecimal(portfolioValue))
-	if code := ownershipEvidenceCode(current, e, now); code != "" {
+	d.measure("externalPortfolioNotional", exactDecimal(externalValue))
+	if code := p.ownershipEvidenceCode(current, e, now); code != "" {
 		return deny(code)
 	}
 	for _, order := range current.OpenOrders {

@@ -18,6 +18,22 @@ func observationResponses() map[string]string {
 		"/v2/stocks/quotes/latest": `{"quotes":{"AAPL":{"ap":100.125,"bp":100.12,"t":"2026-09-23T14:00:00.123456789Z"}}}`,
 	}
 }
+
+func TestPaperObservationCannotOfferMarginAsSpendableCash(t *testing.T) {
+	for _, tc := range []struct{ cash, power, want string }{{"2", "100", "2"}, {"100", "2", "2"}, {"0", "100", "0"}} {
+		responses := observationResponses()
+		responses["/v2/account"] = strings.Replace(strings.Replace(accountBody, `"cash":"100"`, `"cash":"`+tc.cash+`"`, 1), `"buying_power":"100"`, `"buying_power":"`+tc.power+`"`, 1)
+		broker, err := newPaperBroker(paperConfig(), paperTransportFunc(func(r *http.Request) (*http.Response, error) { return brokerResponse(200, responses[r.URL.Path]), nil }))
+		if err != nil {
+			t.Fatal(err)
+		}
+		broker.now = fixtureTime
+		o, err := broker.Observe(context.Background(), "AAPL")
+		if err != nil || o.BuyingPower != tc.want {
+			t.Fatalf("cash=%s power=%s: spendable=%s err=%v", tc.cash, tc.power, o.BuyingPower, err)
+		}
+	}
+}
 func TestPaperObservationPreservesSourceTimeAndUsesIEXOnly(t *testing.T) {
 	responses := observationResponses()
 	calls := 0
@@ -55,6 +71,7 @@ func TestPaperObservationPreservesSourceTimeAndUsesIEXOnly(t *testing.T) {
 func TestPaperObservationFailsClosedOnIncompleteSources(t *testing.T) {
 	for _, tc := range []struct{ path, body string }{
 		{"/v2/account", `{"id":"paper-account-1"}`},
+		{"/v2/account", strings.Replace(accountBody, `,"cash":"100"`, "", 1)},
 		{"/v2/clock", `{"is_open":true}`},
 		{"/v2/assets/AAPL", `{"symbol":"AAPL","class":"us_equity","tradable":true}`},
 		{"/v2/positions", `null`},

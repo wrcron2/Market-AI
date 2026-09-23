@@ -1,0 +1,34 @@
+# Use instead of authority-disabled.yml for the owner-approved paper cycle.
+# Kimi Learner is the sole economic authority; the legacy brain only heartbeats.
+services:
+  backend:
+    environment:
+      GO_SERVER_HOST: "0.0.0.0"
+      DECISION_AUTHORITY: "KIMI"
+      MARKET_AI_OPERATING_MODE: "paper"
+      PAPER_TRADING: "true"
+      ALPACA_BASE_URL: https://paper-api.alpaca.markets
+      KIMI_EXECUTION_ENABLED: "true"
+      KIMI_KILL_SWITCH: "false"
+      KIMI_OWNER_ID: ${KIMI_OWNER_ID:?Set the learner owner}
+      KIMI_ALPACA_ACCOUNT_ID: ${KIMI_ALPACA_ACCOUNT_ID:?Set the paper account}
+      KIMI_EXECUTION_HMAC_KEY: ${KIMI_EXECUTION_HMAC_KEY:?Set the shared key}
+      KIMI_EXECUTION_POLICY_VERSION: ${KIMI_EXECUTION_POLICY_VERSION:?Set the policy version}
+      KIMI_EXECUTION_DB: /app/db/learner-execution.db
+      KIMI_EXTERNAL_POSITIONS: ${KIMI_EXTERNAL_POSITIONS:-}
+      KIMI_MAX_ORDER_NOTIONAL: ${KIMI_MAX_ORDER_NOTIONAL:?Set the paper order limit}
+      KIMI_MAX_POSITION_NOTIONAL: ${KIMI_MAX_POSITION_NOTIONAL:?Set the paper position limit}
+      KIMI_MAX_PORTFOLIO_NOTIONAL: ${KIMI_MAX_PORTFOLIO_NOTIONAL:?Set the paper portfolio limit}
+      KIMI_MAX_DAILY_NOTIONAL: ${KIMI_MAX_DAILY_NOTIONAL:?Set the paper daily limit}
+    networks:
+      default: {}
+      learner-execution:
+        aliases: [market-ai-executor]
+  brain:
+    environment:
+      DECISION_AUTHORITY: "KIMI"
+      MARKET_AI_OPERATING_MODE: "paper"
+networks:
+  learner-execution:
+    name: learner-execution
+    internal: true

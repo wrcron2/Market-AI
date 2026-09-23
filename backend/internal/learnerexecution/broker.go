@@ -53,9 +53,24 @@ func (b *PaperBroker) Observe(ctx context.Context, symbol string) (BrokerSnapsho
 	if !ok {
 		return out, errBrokerResponse
 	}
-	if _, err := observedDecimal(power); err != nil {
+	available, err := observedDecimal(power)
+	if err != nil {
 		return out, errBrokerResponse
 	}
+	cashText, ok := requiredString(account, "cash")
+	if !ok {
+		return out, errBrokerResponse
+	}
+	cash, err := observedDecimal(cashText)
+	if err != nil {
+		return out, errBrokerResponse
+	}
+	// The wire field is retained for compatibility; it exposes cash-limited
+	// spending capacity, never Alpaca's margin buying power.
+	if cash.Cmp(available) < 0 {
+		available = cash
+	}
+	power = exactDecimal(available)
 	clockValue, _, err := b.request(ctx, http.MethodGet, "/v2/clock", nil)
 	if err != nil {
 		return out, err

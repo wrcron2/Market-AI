@@ -30,6 +30,9 @@ type Runtime struct {
 func (r *Runtime) Close() error { return r.db.Close() }
 
 func (p SafetyPolicy) configured() bool {
+	if _, err := p.externalPositions(); err != nil {
+		return false
+	}
 	if !idPattern.MatchString(p.AccountID) || !idPattern.MatchString(p.Version) || p.MaxAge <= 0 || p.MaxAge > time.Minute {
 		return false
 	}
@@ -53,7 +56,7 @@ func RuntimeConfigFromEnv() RuntimeConfig {
 	}
 	return RuntimeConfig{DatabasePath: os.Getenv("KIMI_EXECUTION_DB"), OwnerID: os.Getenv("KIMI_OWNER_ID"), HMACKey: []byte(os.Getenv("KIMI_EXECUTION_HMAC_KEY")),
 		Broker: PaperBrokerConfig{BaseURL: base, APIKey: os.Getenv("ALPACA_API_KEY"), SecretKey: os.Getenv("ALPACA_SECRET_KEY"), AccountID: account, Authority: os.Getenv("DECISION_AUTHORITY"), OperatingMode: os.Getenv("MARKET_AI_OPERATING_MODE"), Paper: os.Getenv("PAPER_TRADING") == "true"},
-		Policy: SafetyPolicy{Enabled: os.Getenv("KIMI_EXECUTION_ENABLED") == "true", KillSwitch: os.Getenv("KIMI_KILL_SWITCH") != "false", AccountID: account, Version: os.Getenv("KIMI_EXECUTION_POLICY_VERSION"), MaxOrder: os.Getenv("KIMI_MAX_ORDER_NOTIONAL"), MaxPosition: os.Getenv("KIMI_MAX_POSITION_NOTIONAL"), MaxPortfolio: os.Getenv("KIMI_MAX_PORTFOLIO_NOTIONAL"), MaxDaily: os.Getenv("KIMI_MAX_DAILY_NOTIONAL"), MaxAge: time.Duration(age) * time.Second},
+		Policy: SafetyPolicy{ExternalPositions: os.Getenv("KIMI_EXTERNAL_POSITIONS"), Enabled: os.Getenv("KIMI_EXECUTION_ENABLED") == "true", KillSwitch: os.Getenv("KIMI_KILL_SWITCH") != "false", AccountID: account, Version: os.Getenv("KIMI_EXECUTION_POLICY_VERSION"), MaxOrder: os.Getenv("KIMI_MAX_ORDER_NOTIONAL"), MaxPosition: os.Getenv("KIMI_MAX_POSITION_NOTIONAL"), MaxPortfolio: os.Getenv("KIMI_MAX_PORTFOLIO_NOTIONAL"), MaxDaily: os.Getenv("KIMI_MAX_DAILY_NOTIONAL"), MaxAge: time.Duration(age) * time.Second},
 	}
 }
 
